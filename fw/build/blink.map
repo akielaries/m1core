@@ -58,7 +58,7 @@ LOAD build/blink_sim.o
  .isr_vector    0x00000000       0x40 build/startup.o
                 0x00000000                vector_table
 
-.text           0x00000040       0x7c
+.text           0x00000040       0x8c
  *(.text*)
  .text.Default_Handler
                 0x00000040        0x2 build/startup.o
@@ -69,45 +69,48 @@ LOAD build/blink_sim.o
                 0x00000040                SVC_Handler
  *fill*         0x00000042        0x2 
  .text.Reset_Handler
-                0x00000044       0x3c build/startup.o
+                0x00000044       0x10 build/startup.o
                 0x00000044                Reset_Handler
- .text.delay    0x00000080       0x12 build/blink_sim.o
- .text.main     0x00000092       0x28 build/blink_sim.o
-                0x00000092                main
+ .text.reset_main
+                0x00000054       0x3c build/startup.o
+                0x00000054                reset_main
+ .text.delay    0x00000090       0x12 build/blink_sim.o
+ .text.main     0x000000a2       0x28 build/blink_sim.o
+                0x000000a2                main
  *(.rodata*)
-                0x000000bc                        . = ALIGN (0x4)
- *fill*         0x000000ba        0x2 
-                0x000000bc                        _sidata = LOADADDR (.data)
+                0x000000cc                        . = ALIGN (0x4)
+ *fill*         0x000000ca        0x2 
+                0x000000cc                        _sidata = LOADADDR (.data)
 
-.glue_7         0x000000bc        0x0
- .glue_7        0x000000bc        0x0 linker stubs
+.glue_7         0x000000cc        0x0
+ .glue_7        0x000000cc        0x0 linker stubs
 
-.glue_7t        0x000000bc        0x0
- .glue_7t       0x000000bc        0x0 linker stubs
+.glue_7t        0x000000cc        0x0
+ .glue_7t       0x000000cc        0x0 linker stubs
 
-.vfp11_veneer   0x000000bc        0x0
- .vfp11_veneer  0x000000bc        0x0 linker stubs
+.vfp11_veneer   0x000000cc        0x0
+ .vfp11_veneer  0x000000cc        0x0 linker stubs
 
-.v4_bx          0x000000bc        0x0
- .v4_bx         0x000000bc        0x0 linker stubs
+.v4_bx          0x000000cc        0x0
+ .v4_bx         0x000000cc        0x0 linker stubs
 
-.iplt           0x000000bc        0x0
- .iplt          0x000000bc        0x0 build/startup.o
+.iplt           0x000000cc        0x0
+ .iplt          0x000000cc        0x0 build/startup.o
 
-.rel.dyn        0x000000bc        0x0
- .rel.iplt      0x000000bc        0x0 build/startup.o
+.rel.dyn        0x000000cc        0x0
+ .rel.iplt      0x000000cc        0x0 build/startup.o
 
-.data           0x20000000        0x0 load address 0x000000bc
+.data           0x20000000        0x0 load address 0x000000cc
                 0x20000000                        . = ALIGN (0x4)
                 0x20000000                        _sdata = .
  *(.data*)
                 0x20000000                        . = ALIGN (0x4)
                 0x20000000                        _edata = .
 
-.igot.plt       0x20000000        0x0 load address 0x000000bc
+.igot.plt       0x20000000        0x0 load address 0x000000cc
  .igot.plt      0x20000000        0x0 build/startup.o
 
-.bss            0x20000000        0x0 load address 0x000000bc
+.bss            0x20000000        0x0 load address 0x000000cc
                 0x20000000                        . = ALIGN (0x4)
                 0x20000000                        _sbss = .
  *(.bss*)
@@ -118,31 +121,31 @@ LOAD build/blink_sim.o
 OUTPUT(build/blink_sim.elf elf32-littlearm)
 LOAD linker stubs
 
-.debug_info     0x00000000      0x298
- .debug_info    0x00000000      0x163 build/startup.o
- .debug_info    0x00000163      0x135 build/blink_sim.o
+.debug_info     0x00000000      0x2aa
+ .debug_info    0x00000000      0x175 build/startup.o
+ .debug_info    0x00000175      0x135 build/blink_sim.o
 
-.debug_abbrev   0x00000000      0x1d6
- .debug_abbrev  0x00000000       0xf9 build/startup.o
- .debug_abbrev  0x000000f9       0xdd build/blink_sim.o
+.debug_abbrev   0x00000000      0x1f2
+ .debug_abbrev  0x00000000      0x115 build/startup.o
+ .debug_abbrev  0x00000115       0xdd build/blink_sim.o
 
 .debug_loclists
                 0x00000000       0x5d
  .debug_loclists
                 0x00000000       0x5d build/startup.o
 
-.debug_aranges  0x00000000       0x50
+.debug_aranges  0x00000000       0x58
  .debug_aranges
-                0x00000000       0x28 build/startup.o
+                0x00000000       0x30 build/startup.o
  .debug_aranges
-                0x00000028       0x28 build/blink_sim.o
+                0x00000030       0x28 build/blink_sim.o
 
 .debug_rnglists
-                0x00000000       0x32
+                0x00000000       0x38
  .debug_rnglists
-                0x00000000       0x19 build/startup.o
+                0x00000000       0x1f build/startup.o
  .debug_rnglists
-                0x00000019       0x19 build/blink_sim.o
+                0x0000001f       0x19 build/blink_sim.o
 
 .debug_macro    0x00000000     0x1fe3
  .debug_macro   0x00000000       0x7a build/startup.o
@@ -160,14 +163,14 @@ LOAD linker stubs
  .debug_macro   0x00001507      0xac0 build/blink_sim.o
  .debug_macro   0x00001fc7       0x1c build/blink_sim.o
 
-.debug_line     0x00000000      0x2e4
- .debug_line    0x00000000      0x163 build/startup.o
- .debug_line    0x00000163      0x181 build/blink_sim.o
+.debug_line     0x00000000      0x2fc
+ .debug_line    0x00000000      0x17b build/startup.o
+ .debug_line    0x0000017b      0x181 build/blink_sim.o
 
-.debug_str      0x00000000     0x52d3
- .debug_str     0x00000000     0x52d3 build/startup.o
-                               0x5559 (size before relaxing)
- .debug_str     0x000052d3        0x0 build/blink_sim.o
+.debug_str      0x00000000     0x52d9
+ .debug_str     0x00000000     0x52d9 build/startup.o
+                               0x5564 (size before relaxing)
+ .debug_str     0x000052d9        0x0 build/blink_sim.o
                                0x5588 (size before relaxing)
 
 .comment        0x00000000       0x28
@@ -183,6 +186,6 @@ LOAD linker stubs
  .ARM.attributes
                 0x0000002c       0x2c build/blink_sim.o
 
-.debug_frame    0x00000000       0x78
- .debug_frame   0x00000000       0x38 build/startup.o
- .debug_frame   0x00000038       0x40 build/blink_sim.o
+.debug_frame    0x00000000       0x88
+ .debug_frame   0x00000000       0x48 build/startup.o
+ .debug_frame   0x00000048       0x40 build/blink_sim.o

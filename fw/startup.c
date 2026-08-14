@@ -33,7 +33,31 @@ void (*const vector_table[])(void) = {
   SysTick_Handler,
 };
 
-void Reset_Handler(void)
+/* the C body of reset. entered with a valid stack, see Reset_Handler below */
+void reset_main(void);
+
+/*
+ * cortex-m takes the initial sp from vector table word 0, but that only happens
+ * on a hardware reset. gdb's load sets pc to the elf entry point and nothing
+ * else, so a load followed by continue starts executing with whatever sp was
+ * left over from before.
+ *
+ * that is why load+continue "just works" on microblaze and on a/r profile arm:
+ * those initialise sp in crt0 software. cortex-m is the odd one out. setting sp
+ * explicitly here makes continue behave the same way, and costs two
+ * instructions on a real reset where it is merely redundant.
+ */
+__attribute__((naked, noreturn)) void Reset_Handler(void)
+{
+  __asm volatile(
+    "ldr r0, =_estack \n"
+    "mov sp, r0       \n"
+    "bl  reset_main   \n"
+    "b   .            \n"
+  );
+}
+
+void reset_main(void)
 {
   uint32_t *src = &_sidata;
   uint32_t *dst = &_sdata;
