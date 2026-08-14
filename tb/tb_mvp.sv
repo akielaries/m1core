@@ -34,18 +34,21 @@ module tb_mvp;
 
   // itcm is preloaded so the core is genuinely running while the debugger does
   // its discovery walk, which exercises the bus arbiter for free
-  m1_mvp_top #(
+  m1core_soc #(
     .ITCM_WORDS (4096),
     .DTCM_WORDS (2048),
     .GPIO_WIDTH (2),
-    .ITCM_INIT  ("../fw/build/blink_sim.hex")
+    .ITCM_INIT  ("../sw/apps/blink/build-sim/blink_sim.hex")
   ) dut (
     .clk   (clk),
     .rst_n (rst_n),
     .swclk (swclk),
     .swdio (swdio),
     .led   (),
-    .gpio  (gpio_pins)
+    .gpio  (gpio_pins),
+    .uart0_rxd (1'b1),
+    .uart0_txd (),
+    .uart0_irq ()
   );
 
   `include "swd_host.svh"
@@ -103,7 +106,7 @@ module tb_mvp;
   // firmware image, built by make -C ../fw. the length is discovered rather
   // than hardcoded so the test cannot silently under-verify a bigger image.
   // $readmemh warns that the file is shorter than the array, that is expected
-  localparam string FW_HEX = "../fw/build/blink.hex";
+  localparam string FW_HEX = "../sw/apps/blink/build/blink.hex";
   logic [31:0] fw_image [0:1023];
   integer      fw_words;
 
@@ -352,14 +355,16 @@ module tb_mvp;
       end else begin
         $display("ok   vector catch halted core   %08x", data);
       end
+      // derived from the loaded vector table rather than hardcoded, so the test
+      // does not care where the linker happened to put the reset handler
       mem32_write(scs_base + 32'hdf4, 32'h0000_000f);  // read pc
       mem32_read(scs_base + 32'hdf8, data);
-      expect32("pc at reset handler", data, 32'h0000_0044);
+      expect32("pc at reset handler", data, fw_image[1] & 32'hffff_fffe);
 
       // and sp came from word 0 of the freshly loaded vector table
       mem32_write(scs_base + 32'hdf4, 32'h0000_000d);  // read sp
       mem32_read(scs_base + 32'hdf8, data);
-      expect32("sp from vector table", data, 32'h2000_2000);
+      expect32("sp from vector table", data, fw_image[0]);
     end
 
     $display("");

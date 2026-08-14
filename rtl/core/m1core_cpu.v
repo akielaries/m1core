@@ -1,6 +1,6 @@
 `default_nettype none
 
-// armv6-m core, multi-cycle
+// m1core cpu: armv6-m, multi-cycle
 //
 // deliberately not pipelined. nothing in the toolchain or the debugger can
 // observe pipeline timing, and a multi-cycle machine is far easier to get
@@ -13,7 +13,7 @@
 // not implemented yet: exceptions, nvic, svc. those come with the next stage.
 // bkpt and svc currently halt the core, which is at least visible in gdb
 
-module armv6m_core (
+module m1core_cpu (
   input  wire        clk,
   input  wire        rst_n,
 
@@ -24,6 +24,7 @@ module armv6m_core (
   output reg  [2:0]  bus_size,
   output reg  [31:0] bus_wdata,
   input  wire        bus_gnt,
+  input  wire        bus_ready,
   input  wire [31:0] bus_rdata,
 
   // debug control from the scs
@@ -101,6 +102,12 @@ module armv6m_core (
   reg        halt_pending;
 
   assign dbg_halted = (state == ST_HALTED);
+
+  // states waiting on bus read data. holding these while the slave is not ready
+  // is all that wait state support costs the core
+  wire in_data_phase = (state == ST_RST_SP_D) || (state == ST_RST_PC_D) ||
+                       (state == ST_FETCH_D)  || (state == ST_FETCH2_D) ||
+                       (state == ST_MEM_D)    || (state == ST_MULTI_D);
 
   // a debug event (vector catch, bkpt, completed step) has to latch c_halt in
   // the scs. without that the core halts and then immediately resumes on the
@@ -344,6 +351,9 @@ module armv6m_core (
       v_flag   <= 1'b0;
       primask  <= 1'b0;
       stepping <= 1'b0;
+    end else if (in_data_phase && !bus_ready) begin
+      // slave is inserting wait states, hold everything
+      dreg_ack <= 1'b0;
     end else begin
       dreg_ack <= 1'b0;
 

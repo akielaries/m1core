@@ -25,18 +25,21 @@ module tb_core;
 
   wire [1:0] gpio_pins;
 
-  m1_mvp_top #(
+  m1core_soc #(
     .ITCM_WORDS (4096),
     .DTCM_WORDS (2048),
     .GPIO_WIDTH (2),
-    .ITCM_INIT  ("../fw/build/isatest.hex")
+    .ITCM_INIT  ("../sw/tests/isa/build/isatest.hex")
   ) dut (
     .clk   (clk),
     .rst_n (rst_n),
     .swclk (1'b0),
     .swdio (swdio),
     .led   (),
-    .gpio  (gpio_pins)
+    .gpio  (gpio_pins),
+    .uart0_rxd (1'b1),
+    .uart0_txd (),
+    .uart0_irq ()
   );
 
   // the test writes its results to the bottom of dtcm

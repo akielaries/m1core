@@ -1,0 +1,276 @@
+Archive member included to satisfy reference by file (symbol)
+
+/usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+                              build/uart.o (__aeabi_uidiv)
+/usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+                              /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o) (__aeabi_idiv0)
+
+Merging object attributes
+
+
+Discarded input sections
+
+ .group         0x00000000        0xc build/main.o
+ .group         0x00000000        0xc build/main.o
+ .group         0x00000000        0xc build/main.o
+ .group         0x00000000        0xc build/main.o
+ .group         0x00000000        0xc build/main.o
+ .group         0x00000000        0xc build/main.o
+ .group         0x00000000        0xc build/main.o
+ .group         0x00000000        0xc build/main.o
+ .group         0x00000000        0xc build/main.o
+ .group         0x00000000        0xc build/main.o
+ .group         0x00000000        0xc build/main.o
+ .text          0x00000000        0x0 build/main.o
+ .data          0x00000000        0x0 build/main.o
+ .bss           0x00000000        0x0 build/main.o
+ .group         0x00000000        0xc build/startup.o
+ .group         0x00000000        0xc build/startup.o
+ .group         0x00000000        0xc build/startup.o
+ .group         0x00000000        0xc build/startup.o
+ .group         0x00000000        0xc build/startup.o
+ .group         0x00000000        0xc build/startup.o
+ .group         0x00000000        0xc build/startup.o
+ .group         0x00000000        0xc build/startup.o
+ .group         0x00000000        0xc build/startup.o
+ .group         0x00000000        0xc build/startup.o
+ .text          0x00000000        0x0 build/startup.o
+ .data          0x00000000        0x0 build/startup.o
+ .bss           0x00000000        0x0 build/startup.o
+ .debug_macro   0x00000000      0xaba build/startup.o
+ .debug_macro   0x00000000      0x14b build/startup.o
+ .debug_macro   0x00000000       0x9c build/startup.o
+ .debug_macro   0x00000000       0x46 build/startup.o
+ .debug_macro   0x00000000       0x58 build/startup.o
+ .debug_macro   0x00000000       0x5b build/startup.o
+ .debug_macro   0x00000000      0x23f build/startup.o
+ .debug_macro   0x00000000       0x6a build/startup.o
+ .debug_macro   0x00000000      0x103 build/startup.o
+ .debug_macro   0x00000000      0x2be build/startup.o
+ .group         0x00000000        0xc build/uart.o
+ .group         0x00000000        0xc build/uart.o
+ .group         0x00000000        0xc build/uart.o
+ .group         0x00000000        0xc build/uart.o
+ .group         0x00000000        0xc build/uart.o
+ .group         0x00000000        0xc build/uart.o
+ .group         0x00000000        0xc build/uart.o
+ .group         0x00000000        0xc build/uart.o
+ .group         0x00000000        0xc build/uart.o
+ .group         0x00000000        0xc build/uart.o
+ .group         0x00000000        0xc build/uart.o
+ .text          0x00000000        0x0 build/uart.o
+ .data          0x00000000        0x0 build/uart.o
+ .bss           0x00000000        0x0 build/uart.o
+ .text.uart_init
+                0x00000000       0x24 build/uart.o
+ .text.uart_putc
+                0x00000000       0x14 build/uart.o
+ .text.uart_puts
+                0x00000000       0x24 build/uart.o
+ .text.uart_puthex
+                0x00000000       0x30 build/uart.o
+ .rodata.digits.0
+                0x00000000       0x11 build/uart.o
+ .debug_info    0x00000000      0x247 build/uart.o
+ .debug_abbrev  0x00000000      0x12b build/uart.o
+ .debug_loclists
+                0x00000000       0xa1 build/uart.o
+ .debug_aranges
+                0x00000000       0x38 build/uart.o
+ .debug_rnglists
+                0x00000000       0x25 build/uart.o
+ .debug_macro   0x00000000       0x89 build/uart.o
+ .debug_macro   0x00000000      0xaba build/uart.o
+ .debug_macro   0x00000000      0x14b build/uart.o
+ .debug_macro   0x00000000       0x9c build/uart.o
+ .debug_macro   0x00000000       0x46 build/uart.o
+ .debug_macro   0x00000000       0x58 build/uart.o
+ .debug_macro   0x00000000       0x5b build/uart.o
+ .debug_macro   0x00000000      0x23f build/uart.o
+ .debug_macro   0x00000000       0x6a build/uart.o
+ .debug_macro   0x00000000      0x103 build/uart.o
+ .debug_macro   0x00000000      0x2be build/uart.o
+ .debug_macro   0x00000000       0x70 build/uart.o
+ .debug_line    0x00000000      0x204 build/uart.o
+ .debug_str     0x00000000     0x57a2 build/uart.o
+ .comment       0x00000000       0x29 build/uart.o
+ .debug_frame   0x00000000       0x70 build/uart.o
+ .ARM.attributes
+                0x00000000       0x2c build/uart.o
+ .text          0x00000000      0x114 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .data          0x00000000        0x0 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .bss           0x00000000        0x0 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .debug_frame   0x00000000       0x20 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .debug_line    0x00000000       0x56 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .debug_line_str
+                0x00000000       0xa0 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .debug_info    0x00000000       0x3e /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .debug_abbrev  0x00000000       0x28 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .debug_aranges
+                0x00000000       0x20 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .debug_str     0x00000000       0xc7 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .ARM.attributes
+                0x00000000       0x1e /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .text          0x00000000        0x4 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+ .data          0x00000000        0x0 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+ .bss           0x00000000        0x0 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+ .debug_line    0x00000000       0x4a /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+ .debug_line_str
+                0x00000000       0xa0 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+ .debug_info    0x00000000       0x3c /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+ .debug_abbrev  0x00000000       0x26 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+ .debug_aranges
+                0x00000000       0x20 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+ .debug_str     0x00000000       0xc8 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+ .ARM.attributes
+                0x00000000       0x1e /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+
+Memory Configuration
+
+Name             Origin             Length             Attributes
+ITCM             0x00000000         0x00004000         xr
+DTCM             0x20000000         0x00002000         xrw
+*default*        0x00000000         0xffffffff
+
+Linker script and memory map
+
+LOAD build/main.o
+LOAD build/startup.o
+LOAD build/uart.o
+LOAD /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a
+
+.isr_vector     0x00000000       0x40
+ *(.isr_vector)
+ .isr_vector    0x00000000       0x40 build/startup.o
+                0x00000000                vector_table
+
+.text           0x00000040       0x94
+ *(.text*)
+ .text.delay    0x00000040       0x12 build/main.o
+ *fill*         0x00000052        0x2 
+ .text.main     0x00000054       0x30 build/main.o
+                0x00000054                main
+ .text.Default_Handler
+                0x00000084        0x2 build/startup.o
+                0x00000084                HardFault_Handler
+                0x00000084                SysTick_Handler
+                0x00000084                PendSV_Handler
+                0x00000084                NMI_Handler
+                0x00000084                SVC_Handler
+ *fill*         0x00000086        0x2 
+ .text.Reset_Handler
+                0x00000088       0x10 build/startup.o
+                0x00000088                Reset_Handler
+ .text.reset_main
+                0x00000098       0x3c build/startup.o
+                0x00000098                reset_main
+ *(.rodata*)
+                0x000000d4                        . = ALIGN (0x4)
+                0x000000d4                        _sidata = LOADADDR (.data)
+
+.glue_7         0x000000d4        0x0
+ .glue_7        0x000000d4        0x0 linker stubs
+
+.glue_7t        0x000000d4        0x0
+ .glue_7t       0x000000d4        0x0 linker stubs
+
+.vfp11_veneer   0x000000d4        0x0
+ .vfp11_veneer  0x000000d4        0x0 linker stubs
+
+.v4_bx          0x000000d4        0x0
+ .v4_bx         0x000000d4        0x0 linker stubs
+
+.iplt           0x000000d4        0x0
+ .iplt          0x000000d4        0x0 build/main.o
+
+.rel.dyn        0x000000d4        0x0
+ .rel.iplt      0x000000d4        0x0 build/main.o
+
+.data           0x20000000        0x0 load address 0x000000d4
+                0x20000000                        . = ALIGN (0x4)
+                0x20000000                        _sdata = .
+ *(.data*)
+                0x20000000                        . = ALIGN (0x4)
+                0x20000000                        _edata = .
+
+.igot.plt       0x20000000        0x0 load address 0x000000d4
+ .igot.plt      0x20000000        0x0 build/main.o
+
+.bss            0x20000000        0x0 load address 0x000000d4
+                0x20000000                        . = ALIGN (0x4)
+                0x20000000                        _sbss = .
+ *(.bss*)
+ *(COMMON)
+                0x20000000                        . = ALIGN (0x4)
+                0x20000000                        _ebss = .
+                0x20002000                        _estack = (ORIGIN (DTCM) + LENGTH (DTCM))
+OUTPUT(build/blink.elf elf32-littlearm)
+LOAD linker stubs
+
+.debug_info     0x00000000      0x2aa
+ .debug_info    0x00000000      0x135 build/main.o
+ .debug_info    0x00000135      0x175 build/startup.o
+
+.debug_abbrev   0x00000000      0x1f2
+ .debug_abbrev  0x00000000       0xdd build/main.o
+ .debug_abbrev  0x000000dd      0x115 build/startup.o
+
+.debug_aranges  0x00000000       0x58
+ .debug_aranges
+                0x00000000       0x28 build/main.o
+ .debug_aranges
+                0x00000028       0x30 build/startup.o
+
+.debug_rnglists
+                0x00000000       0x38
+ .debug_rnglists
+                0x00000000       0x19 build/main.o
+ .debug_rnglists
+                0x00000019       0x1f build/startup.o
+
+.debug_macro    0x00000000     0x1529
+ .debug_macro   0x00000000       0x8f build/main.o
+ .debug_macro   0x0000008f      0xaba build/main.o
+ .debug_macro   0x00000b49      0x14b build/main.o
+ .debug_macro   0x00000c94       0x9c build/main.o
+ .debug_macro   0x00000d30       0x46 build/main.o
+ .debug_macro   0x00000d76       0x58 build/main.o
+ .debug_macro   0x00000dce       0x5b build/main.o
+ .debug_macro   0x00000e29      0x23f build/main.o
+ .debug_macro   0x00001068       0x6a build/main.o
+ .debug_macro   0x000010d2      0x103 build/main.o
+ .debug_macro   0x000011d5      0x2be build/main.o
+ .debug_macro   0x00001493       0x1c build/main.o
+ .debug_macro   0x000014af       0x7a build/startup.o
+
+.debug_line     0x00000000      0x30f
+ .debug_line    0x00000000      0x18a build/main.o
+ .debug_line    0x0000018a      0x185 build/startup.o
+
+.debug_str      0x00000000     0x52f1
+ .debug_str     0x00000000     0x52f1 build/main.o
+                               0x5596 (size before relaxing)
+ .debug_str     0x000052f1        0x0 build/startup.o
+                               0x5579 (size before relaxing)
+
+.comment        0x00000000       0x28
+ .comment       0x00000000       0x28 build/main.o
+                                 0x29 (size before relaxing)
+ .comment       0x00000028        0x0 build/startup.o
+                                 0x29 (size before relaxing)
+
+.ARM.attributes
+                0x00000000       0x2c
+ .ARM.attributes
+                0x00000000       0x2c build/main.o
+ .ARM.attributes
+                0x0000002c       0x2c build/startup.o
+
+.debug_frame    0x00000000       0x8c
+ .debug_frame   0x00000000       0x44 build/main.o
+ .debug_frame   0x00000044       0x48 build/startup.o
+
+.debug_loclists
+                0x00000000       0x5d
+ .debug_loclists
+                0x00000000       0x5d build/startup.o

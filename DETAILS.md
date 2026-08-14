@@ -32,34 +32,52 @@ behind a debugger that already works.
       with stock BMP. The ID contract in `docs/id-contract.md` is validated
       against real silicon: ROM table walked, SCS PIDR 0x04000bb008, ROM partno
       0x470, designer 0x43b, CPUID recognised
-- [ ] **MVP milestone**: `attach`, `gdb load` the image, and `continue` into a
-      blinking LED
+- [x] **MVP milestone complete**: attach over SWD, `load`, and the core runs the
+      blink firmware on a Tang Primer 25K. Debug, memory access, reset and
+      execution all working on hardware
 - [ ] NVIC and the exception model, so interrupts and SVC work
 - [ ] BPU/DWT for hardware breakpoints and watchpoints
 
 ## Layout
 
 ```
-docs/id-contract.md      every ID register value, derived from the BMP source
-rtl/m1_mvp_top.v        top level
-rtl/dap/swd_phy.v       swclk/swdio oversampling, packet framing
-rtl/dap/sw_dp.v         debug port register file
-rtl/dap/mem_ap.v        mem-ap, turns DRW accesses into AHB cycles
-rtl/debug/ppb_regs.v    rom table, scs, dwt/bpu id blocks
-rtl/core/armv6m_core.v  the cpu
-rtl/soc/ahb_fabric.v    address decode and read mux
-rtl/soc/ahb_arb.v       two master arbiter, debugger wins
-rtl/soc/ahb_sram.v      itcm/dtcm
-rtl/soc/ahb_gpio.v      gpio
-fw/blink.c               blink firmware
-fw/isatest.S             self checking instruction test
-tb/swd_host.svh          bit level SWD host model, shared
-tb/tb_dap.sv             phy and dp against a stub AP
-tb/tb_core.sv            isa test on the core, no debugger
-tb/tb_blink.sv           core runs blink, pin must actually move
-tb/tb_mvp.sv             full discovery walk plus memory access
-boards/gw5a25/          tang primer 25k build, gprj + pins + sdc
+rtl/core/       armv6m_core.v      the cpu, and nothing else
+rtl/debug/      swd_phy, sw_dp     swd framing and the debug port
+                mem_ap             turns DRW accesses into bus cycles
+                ppb_regs           rom table, scs, dwt/bpu id blocks
+rtl/soc/        m1_soc.v           soc top: cpu + debug + fabric + memories
+                ahb_arb            two master arbiter, debugger wins
+                ahb_fabric         address decode and read mux
+                ahb_sram           itcm/dtcm
+rtl/periph/     ahb_gpio.v         peripherals live here as they are added
+
+sw/bsp/         startup.c, link.ld, soc.h, bsp.mk
+                                   board support shared by every application
+sw/apps/blink/  main.c             demo application
+sw/tests/isa/   isatest.S          self checking instruction test
+
+boards/gw5a25/  tang primer 25k: gprj, pins.cst, timing.sdc, board top.v
+tb/             testbenches, systemverilog
+sim/            iverilog build
+tools/          bin2hex.py
+docs/           id-contract.md, derived from the bmp source
 ```
+
+Split by role rather than by file type. `rtl/core` is the reusable CPU,
+`rtl/debug` is what makes a probe recognise it, `rtl/soc` is the assembly, and
+`rtl/periph` is where the system grows.
+
+Adding an application is three lines:
+
+```make
+APP  := myapp
+SRCS := main.c
+include ../../bsp/bsp.mk
+```
+
+`sw/bsp/bsp.mk` supplies the toolchain flags, startup code, linker script and hex
+conversion. An app carrying its own vector table (the ISA test does) sets
+`BSP_SRCS :=` to opt out of the startup code.
 
 ## Language
 
@@ -176,7 +194,7 @@ used APSEL 0. There are now checks at APSEL 1 and 255.
 ## Firmware
 
 ```
-cd fw && make
+cd sw && make
 ```
 
 Builds with `arm-none-eabi-gcc -mcpu=cortex-m1 -mthumb`, links code at ITCM and

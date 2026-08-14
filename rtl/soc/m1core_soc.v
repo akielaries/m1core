@@ -1,12 +1,12 @@
 `default_nettype none
 
-// mvp top level: a debug access path with memory behind it, and no cpu yet
+// soc top level: cpu, debug access port, bus fabric, memories and peripherals
 //
 // what this is for: attach a black magic probe, have it discover a cortex-m1
 // through the rom table, and let gdb load write firmware into the itcm. once
 // that works end to end on hardware, the core gets built behind it
 
-module m1_mvp_top #(
+module m1core_soc #(
   parameter ITCM_WORDS  = 4096,   // 16 kb
   parameter DTCM_WORDS  = 2048,   // 8 kb
   parameter GPIO_WIDTH  = 2,
@@ -23,7 +23,12 @@ module m1_mvp_top #(
   output wire [3:0]  led,
 
   // firmware controlled pins, also reachable from gdb over swd
-  output wire [GPIO_WIDTH-1:0]gpio
+  output wire [GPIO_WIDTH-1:0]gpio,
+
+  // uart0
+  input  wire        uart0_rxd,
+  output wire        uart0_txd,
+  output wire        uart0_irq
 );
 
   // power on reset, so the design comes up correctly whether rst_n is wired to
@@ -141,6 +146,7 @@ module m1_mvp_top #(
     .bus_size  (dap_size),
     .bus_wdata (dap_wdata),
     .bus_gnt   (dap_gnt),
+    .bus_ready (hready),
     .hrdata    (hrdata),
     .hresp     (hresp)
   );
@@ -153,7 +159,7 @@ module m1_mvp_top #(
   wire [31:0] dreg_wdata, dreg_rdata;
   wire [31:0] demcr;
 
-  armv6m_core u_core (
+  m1core_cpu u_core (
     .clk          (clk),
     .rst_n        (rst_n_i),
     .bus_req      (cpu_req),
@@ -162,6 +168,7 @@ module m1_mvp_top #(
     .bus_size     (cpu_size),
     .bus_wdata    (cpu_wdata),
     .bus_gnt      (cpu_gnt),
+    .bus_ready    (hready),
     .bus_rdata    (hrdata),
     .dbg_en        (dbg_en),
     .sys_reset_req (sys_reset_req),
@@ -205,8 +212,9 @@ module m1_mvp_top #(
   );
 
   // bus fabric and slaves
-  wire        hsel_itcm, hsel_dtcm, hsel_gpio, hsel_ppb;
-  wire [31:0] hrdata_itcm, hrdata_dtcm, hrdata_gpio, hrdata_ppb;
+  wire        hsel_itcm, hsel_dtcm, hsel_gpio, hsel_apb, hsel_ppb;
+  wire [31:0] hrdata_itcm, hrdata_dtcm, hrdata_gpio, hrdata_apb, hrdata_ppb;
+  wire        hreadyout_apb;
 
   ahb_fabric u_fabric (
     .clk         (clk),
@@ -219,11 +227,20 @@ module m1_mvp_top #(
     .hsel_itcm   (hsel_itcm),
     .hsel_dtcm   (hsel_dtcm),
     .hsel_gpio   (hsel_gpio),
+    .hsel_apb    (hsel_apb),
     .hsel_ppb    (hsel_ppb),
     .hrdata_itcm (hrdata_itcm),
     .hrdata_dtcm (hrdata_dtcm),
     .hrdata_gpio (hrdata_gpio),
-    .hrdata_ppb  (hrdata_ppb)
+    .hrdata_apb  (hrdata_apb),
+    .hrdata_ppb  (hrdata_ppb),
+    // every slave is zero wait state today. an ahb to apb bridge will drive a
+    // real hreadyout here
+    .hreadyout_itcm (1'b1),
+    .hreadyout_dtcm (1'b1),
+    .hreadyout_gpio (1'b1),
+    .hreadyout_apb  (hreadyout_apb),
+    .hreadyout_ppb  (1'b1)
   );
 
   ahb_gpio #(
@@ -270,6 +287,55 @@ module m1_mvp_top #(
     .hready (hready),
     .hwdata (hwdata),
     .hrdata (hrdata_dtcm)
+  );
+
+  // ---- apb side: one ahb slot, as many peripherals as we like ----
+  wire        psel, penable, pwrite, pready;
+  wire [31:0] paddr, pwdata, prdata;
+
+  ahb_apb_bridge u_apb_bridge (
+    .clk       (clk),
+    .rst_n     (rst_n_i),
+    .hsel      (hsel_apb),
+    .haddr     (haddr),
+    .hwrite    (hwrite),
+    .htrans    (htrans),
+    .hready    (hready),
+    .hwdata    (hwdata),
+    .hrdata    (hrdata_apb),
+    .hreadyout (hreadyout_apb),
+    .psel      (psel),
+    .penable   (penable),
+    .pwrite    (pwrite),
+    .paddr     (paddr),
+    .pwdata    (pwdata),
+    .prdata    (prdata),
+    .pready    (pready)
+  );
+
+  // apb1 decode. one peripheral so far, at the gowin/cmsdk offset for uart0.
+  // this decode is what the soc generator will emit once there are several
+  wire sel_uart0 = (paddr[27:12] == 16'h0004);
+
+  wire [31:0] prdata_uart0;
+  wire        pready_uart0;
+
+  assign prdata = sel_uart0 ? prdata_uart0 : 32'd0;
+  assign pready = sel_uart0 ? pready_uart0 : 1'b1;
+
+  apb_uart u_uart0 (
+    .clk     (clk),
+    .rst_n   (rst_n_i),
+    .psel    (psel && sel_uart0),
+    .penable (penable),
+    .pwrite  (pwrite),
+    .paddr   (paddr),
+    .pwdata  (pwdata),
+    .prdata  (prdata_uart0),
+    .pready  (pready_uart0),
+    .rxd     (uart0_rxd),
+    .txd     (uart0_txd),
+    .irq     (uart0_irq)
   );
 
   ppb_regs u_ppb (

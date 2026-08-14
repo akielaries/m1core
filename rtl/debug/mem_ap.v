@@ -34,6 +34,7 @@ module mem_ap #(
   output reg  [2:0]  bus_size,
   output reg  [31:0] bus_wdata,
   input  wire        bus_gnt,
+  input  wire        bus_ready,
   input  wire [31:0] hrdata,
   input  wire        hresp
 );
@@ -172,8 +173,9 @@ module mem_ap #(
           end
         end
 
-        // data phase, hrdata is valid here for a read
-        ST_DATA: begin
+        // data phase. hrdata is only valid once the slave asserts ready, which
+        // matters as soon as anything slower than a zero wait state slave exists
+        ST_DATA: if (bus_ready) begin
           ap_ack   <= 1'b1;
           ap_rdata <= hrdata;
           ap_fault <= hresp;

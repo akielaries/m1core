@@ -1,7 +1,7 @@
 // board layer for the tang primer 25k (GW5A-LV25MG121)
 //
 // physical pins, clock and reset polarity only. everything else lives in the
-// shared m1_mvp_top, so a second board is a new directory and nothing more
+// shared m1core_soc, so a second board is a new directory and nothing more
 //
 //   LED[0] heartbeat, proves the fabric is clocked
 //   LED[1] debug power up handshake completed
@@ -20,7 +20,10 @@ module top (
   inout        SWDIO,
 
   output [3:0] LED,
-  output [1:0] GPIO
+  output [1:0] GPIO,
+
+  output       UART_TX,   // to the usb-uart / a scope
+  input        UART_RX
 );
 
   // the soc takes an active low reset, the board key is active high
@@ -59,7 +62,7 @@ module top (
   // fw/build/blink.hex next to this file and set ITCM_INIT to "blink.hex". if
   // synthesis cannot find it, adjust the path until it does; it is relative to
   // wherever GowinSynthesis runs, not to this file
-  m1_mvp_top #(
+  m1core_soc #(
     .ITCM_WORDS (4096),          // 16 kb
     .DTCM_WORDS (2048),          // 8 kb
     .GPIO_WIDTH (2),
@@ -70,7 +73,10 @@ module top (
     .swclk (SWCLK),
     .swdio (SWDIO),
     .led   (LED),
-    .gpio  (GPIO)
+    .gpio  (GPIO),
+    .uart0_rxd (UART_RX),
+    .uart0_txd (UART_TX),
+    .uart0_irq ()          // no nvic yet, so this goes nowhere for now
   );
 
 endmodule

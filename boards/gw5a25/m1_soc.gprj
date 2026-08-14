@@ -5,16 +5,18 @@
     <Version>5</Version>
     <Device name="GW5A-25" pn="GW5A-LV25MG121NES">gw5a25-000</Device>
     <FileList>
-        <File path="../../rtl/dap/swd_phy.v" type="file.verilog" enable="1"/>
-        <File path="../../rtl/dap/sw_dp.v" type="file.verilog" enable="1"/>
-        <File path="../../rtl/dap/mem_ap.v" type="file.verilog" enable="1"/>
+        <File path="../../rtl/debug/swd_phy.v" type="file.verilog" enable="1"/>
+        <File path="../../rtl/debug/sw_dp.v" type="file.verilog" enable="1"/>
+        <File path="../../rtl/debug/mem_ap.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/debug/ppb_regs.v" type="file.verilog" enable="1"/>
-        <File path="../../rtl/core/armv6m_core.v" type="file.verilog" enable="1"/>
+        <File path="../../rtl/core/m1core_cpu.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/soc/ahb_arb.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/soc/ahb_fabric.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/soc/ahb_sram.v" type="file.verilog" enable="1"/>
-        <File path="../../rtl/soc/ahb_gpio.v" type="file.verilog" enable="1"/>
-        <File path="../../rtl/m1_mvp_top.v" type="file.verilog" enable="1"/>
+        <File path="../../rtl/periph/ahb_gpio.v" type="file.verilog" enable="1"/>
+        <File path="../../rtl/periph/apb_uart.v" type="file.verilog" enable="1"/>
+        <File path="../../rtl/soc/ahb_apb_bridge.v" type="file.verilog" enable="1"/>
+        <File path="../../rtl/soc/m1core_soc.v" type="file.verilog" enable="1"/>
         <File path="top.v" type="file.verilog" enable="1"/>
         <File path="pins.cst" type="file.cst" enable="1"/>
         <File path="timing.sdc" type="file.sdc" enable="1"/>
