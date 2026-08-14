@@ -1,0 +1,102 @@
+[
+ {
+  "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/top.v",
+  "InstLine" : 15,
+  "InstName" : "top",
+  "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/top.v",
+  "ModuleLine" : 15,
+  "ModuleName" : "top",
+  "SubInsts" : [
+   {
+    "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/top.v",
+    "InstLine" : 67,
+    "InstName" : "u_soc",
+    "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/m1_mvp_top.v",
+    "ModuleLine" : 9,
+    "ModuleName" : "m1_mvp_top",
+    "SubInsts" : [
+     {
+      "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/m1_mvp_top.v",
+      "InstLine" : 57,
+      "InstName" : "u_phy",
+      "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/dap/swd_phy.v",
+      "ModuleLine" : 20,
+      "ModuleName" : "swd_phy"
+     },
+     {
+      "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/m1_mvp_top.v",
+      "InstLine" : 84,
+      "InstName" : "u_dp",
+      "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/dap/sw_dp.v",
+      "ModuleLine" : 12,
+      "ModuleName" : "sw_dp"
+     },
+     {
+      "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/m1_mvp_top.v",
+      "InstLine" : 127,
+      "InstName" : "u_ap",
+      "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/dap/mem_ap.v",
+      "ModuleLine" : 13,
+      "ModuleName" : "mem_ap"
+     },
+     {
+      "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/m1_mvp_top.v",
+      "InstLine" : 156,
+      "InstName" : "u_core",
+      "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/core/armv6m_core.v",
+      "ModuleLine" : 16,
+      "ModuleName" : "armv6m_core"
+     },
+     {
+      "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/m1_mvp_top.v",
+      "InstLine" : 182,
+      "InstName" : "u_arb",
+      "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/soc/ahb_arb.v",
+      "ModuleLine" : 13,
+      "ModuleName" : "ahb_arb"
+     },
+     {
+      "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/m1_mvp_top.v",
+      "InstLine" : 211,
+      "InstName" : "u_fabric",
+      "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/soc/ahb_fabric.v",
+      "ModuleLine" : 14,
+      "ModuleName" : "ahb_fabric"
+     },
+     {
+      "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/m1_mvp_top.v",
+      "InstLine" : 231,
+      "InstName" : "u_gpio",
+      "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/soc/ahb_gpio.v",
+      "ModuleLine" : 13,
+      "ModuleName" : "ahb_gpio"
+     },
+     {
+      "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/m1_mvp_top.v",
+      "InstLine" : 247,
+      "InstName" : "u_itcm",
+      "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/soc/ahb_sram.v",
+      "ModuleLine" : 9,
+      "ModuleName" : "ahb_sram"
+     },
+     {
+      "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/m1_mvp_top.v",
+      "InstLine" : 262,
+      "InstName" : "u_dtcm",
+      "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/soc/ahb_sram.v",
+      "ModuleLine" : 9,
+      "ModuleName" : "ahb_sram"
+     },
+     {
+      "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/m1_mvp_top.v",
+      "InstLine" : 275,
+      "InstName" : "u_ppb",
+      "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/debug/ppb_regs.v",
+      "ModuleLine" : 12,
+      "ModuleName" : "ppb_regs"
+     }
+    ]
+   }
+  ]
+ }
+]

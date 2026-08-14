@@ -1,0 +1,66 @@
+// ===========================================================================
+// tang primer 25k (GW5A-LV25MG121) pin constraints
+//
+// ball locations reused from signalmesh/modules/acm/acm_fpga/boards/gw5a25,
+// which is a build that already works on this board. VERIFY every ball in the
+// gowin ide before building, the same caveat that cst carries.
+//
+// onboard, fixed by the board:
+//   E2  = 50 MHz system clock
+//   H10 = key used as reset, ACTIVE HIGH, pulled down so the board boots
+//         without the key held
+//   C11 = onboard led
+//
+// SWCLK/SWDIO and GPIO sit on dock pmod balls. SWD is only two wires, so it can
+// move to whatever is convenient for your probe lead, but keep both signals on
+// the same bank and keep SWDIO pulled up.
+//
+// DUAL-PURPOSE PINS: two of the balls below are dual-purpose and default to
+// their dedicated function, so placement fails with PR2017 unless they are
+// released as regular IO. that setting lives in the project configuration, NOT
+// in this file:
+//   E2 (HCLK)   needs CPU and SSPI as regular IO
+//   B2 (LED[1]) needs I2C as regular IO
+// see README.md. never enable JTAG as regular IO, it costs reprogramming.
+// ===========================================================================
+
+// 50 MHz system clock
+IO_LOC  "HCLK" E2;
+IO_PORT "HCLK" PULL_MODE=NONE;
+
+// reset key, active high in this board's convention. pull down so the pin idles
+// deasserted. if the board comes up held in reset, the key idles high and the
+// polarity in top.v needs flipping
+IO_LOC  "HRST" H10;
+IO_PORT "HRST" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;
+
+// ---------------------------------------------------------------------------
+// swd from the black magic probe (pmod idx 0 and 1)
+//
+// SWDIO must be pulled up. the bus is undriven during every turnaround, and the
+// framer relies on reading that as a one to swallow the trailing turnaround
+// clock. without the pull up it floats and framing breaks intermittently
+// ---------------------------------------------------------------------------
+IO_LOC  "SWCLK" G11;
+IO_PORT "SWCLK" IO_TYPE=LVCMOS33 PULL_MODE=UP;
+IO_LOC  "SWDIO" G10;
+IO_PORT "SWDIO" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8;
+
+// ---------------------------------------------------------------------------
+// status leds. LED[0] is the onboard one so there is a heartbeat with nothing
+// wired up at all; the rest are on the pmod led balls the acm build uses
+// ---------------------------------------------------------------------------
+IO_LOC  "LED[0]" C11;
+IO_PORT "LED[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_LOC  "LED[1]" C10;
+IO_PORT "LED[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_LOC  "LED[2]" B11;
+IO_PORT "LED[2]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_LOC  "LED[3]" B10;
+IO_PORT "LED[3]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+
+// firmware controlled pins at 0x40000000, what blink toggles
+IO_LOC  "GPIO[0]" D11;
+IO_PORT "GPIO[0]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
+IO_LOC  "GPIO[1]" D10;
+IO_PORT "GPIO[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;

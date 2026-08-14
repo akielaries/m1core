@@ -1,0 +1,57 @@
+{
+ "Device" : "GW5A-25A",
+ "Files" : [
+  {
+   "Path" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/dap/swd_phy.v",
+   "Type" : "verilog"
+  },
+  {
+   "Path" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/dap/sw_dp.v",
+   "Type" : "verilog"
+  },
+  {
+   "Path" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/dap/mem_ap.v",
+   "Type" : "verilog"
+  },
+  {
+   "Path" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/debug/ppb_regs.v",
+   "Type" : "verilog"
+  },
+  {
+   "Path" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/core/armv6m_core.v",
+   "Type" : "verilog"
+  },
+  {
+   "Path" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/soc/ahb_arb.v",
+   "Type" : "verilog"
+  },
+  {
+   "Path" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/soc/ahb_fabric.v",
+   "Type" : "verilog"
+  },
+  {
+   "Path" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/soc/ahb_sram.v",
+   "Type" : "verilog"
+  },
+  {
+   "Path" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/soc/ahb_gpio.v",
+   "Type" : "verilog"
+  },
+  {
+   "Path" : "/home/akiel/trunk/pub/cortexm1_clone/rtl/m1_mvp_top.v",
+   "Type" : "verilog"
+  },
+  {
+   "Path" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/top.v",
+   "Type" : "verilog"
+  }
+ ],
+ "IncludePath" : [
+
+ ],
+ "LoopLimit" : 2000,
+ "ResultFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/impl/temp/rtl_parser.result",
+ "Top" : "",
+ "VerilogStd" : "verilog_2001",
+ "VhdlStd" : "vhdl_93"
+}

@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Module name="top" Register="1" Lut="1" T_Register="1322(1)" T_Alu="820(0)" T_Lut="9562(1)" T_MULT27X36="2(0)" T_Bsram="12(0)">
+ <SubModule name="u_soc" Register="58" Alu="30" Lut="43" T_Register="1321(58)" T_Alu="820(30)" T_Lut="9561(43)" T_MULT27X36="2(0)" T_Bsram="12(0)">
+  <SubModule name="u_phy" Register="106" Lut="216" T_Register="106(106)" T_Lut="216(216)"/>
+  <SubModule name="u_dp" Register="97" Lut="20" T_Register="97(97)" T_Lut="20(20)"/>
+  <SubModule name="u_ap" Register="150" Alu="31" Lut="127" T_Register="150(150)" T_Alu="31(31)" T_Lut="127(127)"/>
+  <SubModule name="u_core" Register="712" Alu="759" Lut="8981" MULT27X36="2" T_Register="712(712)" T_Alu="759(759)" T_Lut="8981(8981)" T_MULT27X36="2(2)"/>
+  <SubModule name="u_arb" Register="1" Lut="58" T_Register="1(1)" T_Lut="58(58)"/>
+  <SubModule name="u_fabric" Register="3" Lut="4" T_Register="3(3)" T_Lut="4(4)"/>
+  <SubModule name="u_gpio" Register="8" Lut="10" T_Register="8(8)" T_Lut="10(10)"/>
+  <SubModule name="u_itcm" Register="19" Lut="10" Bsram="8" T_Register="19(19)" T_Lut="10(10)" T_Bsram="8(8)"/>
+  <SubModule name="u_dtcm" Register="18" Lut="12" Bsram="4" T_Register="18(18)" T_Lut="12(12)" T_Bsram="4(4)"/>
+  <SubModule name="u_ppb" Register="149" Lut="80" T_Register="149(149)" T_Lut="80(80)"/>
+ </SubModule>
+</Module>
