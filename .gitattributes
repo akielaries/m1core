@@ -1,0 +1,33 @@
+# GitHub language statistics
+#
+# linguist-generated  : excluded from stats and collapsed in diffs
+# linguist-detectable : excluded from stats but still shown in diffs
+
+# Everything under a Gowin impl/ directory is IDE output: synthesis netlists,
+# place and route reports, logs, bitstreams. The .vg netlist alone is larger
+# than the entire hand written RTL and would otherwise dominate the stats.
+boards/*/impl/**    linguist-generated=true
+
+# Build artifacts
+fw/build/**         linguist-generated=true
+sim/build/**        linguist-generated=true
+*.vcd               linguist-generated=true
+*.bin               linguist-generated=true
+*.elf               linguist-generated=true
+*.hex               linguist-generated=true
+*.map               linguist-generated=true
+
+# Tool configuration rather than source. Kept visible in diffs because these
+# are hand edited, but they should not count as XML toward the language stats.
+*.gprj              linguist-detectable=false
+*.gprj.user         linguist-detectable=false
+*.cst               linguist-detectable=false
+*.sdc               linguist-detectable=false
+
+# Make sure the hand written sources are attributed correctly. GitHub reads .v
+# as Verilog, but .sv and .svh are easy to misfile, and .S can land as
+# "Unix Assembly" or be missed entirely.
+*.v      linguist-language=Verilog
+*.sv     linguist-language=SystemVerilog
+*.svh    linguist-language=SystemVerilog
+*.S      linguist-language=Assembly
