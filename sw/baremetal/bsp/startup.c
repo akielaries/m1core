@@ -19,6 +19,17 @@ void SVC_Handler(void)       __attribute__((weak, alias("Default_Handler")));
 void PendSV_Handler(void)    __attribute__((weak, alias("Default_Handler")));
 void SysTick_Handler(void)   __attribute__((weak, alias("Default_Handler")));
 
+/* external interrupts. numbering matches the mcu description, see
+   docs/memory-map.md. weak so an application defines only what it uses */
+void UART0_Handler(void)     __attribute__((weak, alias("Default_Handler")));
+void UART1_Handler(void)     __attribute__((weak, alias("Default_Handler")));
+void TIMER0_Handler(void)    __attribute__((weak, alias("Default_Handler")));
+void TIMER1_Handler(void)    __attribute__((weak, alias("Default_Handler")));
+void GPIO0_Handler(void)     __attribute__((weak, alias("Default_Handler")));
+void UARTOVF_Handler(void)   __attribute__((weak, alias("Default_Handler")));
+void RTC_Handler(void)       __attribute__((weak, alias("Default_Handler")));
+void I2C_Handler(void)       __attribute__((weak, alias("Default_Handler")));
+
 /* armv6-m vector table, 16 system entries then the irqs */
 __attribute__((section(".isr_vector"), used))
 void (*const vector_table[])(void) = {
@@ -31,6 +42,16 @@ void (*const vector_table[])(void) = {
   0, 0,
   PendSV_Handler,
   SysTick_Handler,
+
+  /* external interrupts start here, exception number 16 onward */
+  UART0_Handler,
+  UART1_Handler,
+  TIMER0_Handler,
+  TIMER1_Handler,
+  GPIO0_Handler,
+  UARTOVF_Handler,
+  RTC_Handler,
+  I2C_Handler,
 };
 
 /* the C body of reset. entered with a valid stack, see Reset_Handler below */

@@ -139,67 +139,75 @@ LOAD build-sim/startup.o
 LOAD build-sim/uart.o
 LOAD /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a
 
-.isr_vector     0x00000000       0x40
+.isr_vector     0x00000000       0x60
  *(.isr_vector)
- .isr_vector    0x00000000       0x40 build-sim/startup.o
+ .isr_vector    0x00000000       0x60 build-sim/startup.o
                 0x00000000                vector_table
 
-.text           0x00000040       0x88
+.text           0x00000060       0x88
  *(.text*)
- .text.delay    0x00000040       0x12 build-sim/main.o
- .text.main     0x00000052       0x28 build-sim/main.o
-                0x00000052                main
+ .text.delay    0x00000060       0x12 build-sim/main.o
+ .text.main     0x00000072       0x28 build-sim/main.o
+                0x00000072                main
  .text.Default_Handler
-                0x0000007a        0x2 build-sim/startup.o
-                0x0000007a                HardFault_Handler
-                0x0000007a                SysTick_Handler
-                0x0000007a                PendSV_Handler
-                0x0000007a                NMI_Handler
-                0x0000007a                SVC_Handler
+                0x0000009a        0x2 build-sim/startup.o
+                0x0000009a                HardFault_Handler
+                0x0000009a                TIMER0_Handler
+                0x0000009a                SysTick_Handler
+                0x0000009a                PendSV_Handler
+                0x0000009a                NMI_Handler
+                0x0000009a                TIMER1_Handler
+                0x0000009a                RTC_Handler
+                0x0000009a                UARTOVF_Handler
+                0x0000009a                UART1_Handler
+                0x0000009a                I2C_Handler
+                0x0000009a                SVC_Handler
+                0x0000009a                UART0_Handler
+                0x0000009a                GPIO0_Handler
  .text.Reset_Handler
-                0x0000007c       0x10 build-sim/startup.o
-                0x0000007c                Reset_Handler
+                0x0000009c       0x10 build-sim/startup.o
+                0x0000009c                Reset_Handler
  .text.reset_main
-                0x0000008c       0x3c build-sim/startup.o
-                0x0000008c                reset_main
+                0x000000ac       0x3c build-sim/startup.o
+                0x000000ac                reset_main
  *(.rodata*)
-                0x000000c8                        . = ALIGN (0x4)
+                0x000000e8                        . = ALIGN (0x4)
 
-.glue_7         0x000000c8        0x0
- .glue_7        0x000000c8        0x0 linker stubs
+.glue_7         0x000000e8        0x0
+ .glue_7        0x000000e8        0x0 linker stubs
 
-.glue_7t        0x000000c8        0x0
- .glue_7t       0x000000c8        0x0 linker stubs
+.glue_7t        0x000000e8        0x0
+ .glue_7t       0x000000e8        0x0 linker stubs
 
-.vfp11_veneer   0x000000c8        0x0
- .vfp11_veneer  0x000000c8        0x0 linker stubs
+.vfp11_veneer   0x000000e8        0x0
+ .vfp11_veneer  0x000000e8        0x0 linker stubs
 
-.v4_bx          0x000000c8        0x0
- .v4_bx         0x000000c8        0x0 linker stubs
+.v4_bx          0x000000e8        0x0
+ .v4_bx         0x000000e8        0x0 linker stubs
 
-.iplt           0x000000c8        0x0
- .iplt          0x000000c8        0x0 build-sim/main.o
+.iplt           0x000000e8        0x0
+ .iplt          0x000000e8        0x0 build-sim/main.o
 
-.rel.dyn        0x000000c8        0x0
- .rel.iplt      0x000000c8        0x0 build-sim/main.o
+.rel.dyn        0x000000e8        0x0
+ .rel.iplt      0x000000e8        0x0 build-sim/main.o
 
 .results        0x20000000        0x0
                 0x20000000                        . = ALIGN (0x4)
  *(.results)
                 0x20000000                        . = ALIGN (0x4)
-                0x000000c8                        _sidata = LOADADDR (.data)
+                0x000000e8                        _sidata = LOADADDR (.data)
 
-.data           0x20000000        0x0 load address 0x000000c8
+.data           0x20000000        0x0 load address 0x000000e8
                 0x20000000                        . = ALIGN (0x4)
                 0x20000000                        _sdata = .
  *(.data*)
                 0x20000000                        . = ALIGN (0x4)
                 0x20000000                        _edata = .
 
-.igot.plt       0x20000000        0x0 load address 0x000000c8
+.igot.plt       0x20000000        0x0 load address 0x000000e8
  .igot.plt      0x20000000        0x0 build-sim/main.o
 
-.bss            0x20000000        0x0 load address 0x000000c8
+.bss            0x20000000        0x0 load address 0x000000e8
                 0x20000000                        . = ALIGN (0x4)
                 0x20000000                        _sbss = .
  *(.bss*)
@@ -246,15 +254,15 @@ LOAD linker stubs
  .debug_macro   0x00001493       0x76 build-sim/main.o
  .debug_macro   0x00001509       0x7a build-sim/startup.o
 
-.debug_line     0x00000000      0x312
+.debug_line     0x00000000      0x314
  .debug_line    0x00000000      0x18d build-sim/main.o
- .debug_line    0x0000018d      0x185 build-sim/startup.o
+ .debug_line    0x0000018d      0x187 build-sim/startup.o
 
-.debug_str      0x00000000     0x54c0
- .debug_str     0x00000000     0x54c0 build-sim/main.o
+.debug_str      0x00000000     0x548d
+ .debug_str     0x00000000     0x548d build-sim/main.o
                                0x5732 (size before relaxing)
- .debug_str     0x000054c0        0x0 build-sim/startup.o
-                               0x5589 (size before relaxing)
+ .debug_str     0x0000548d        0x0 build-sim/startup.o
+                               0x5593 (size before relaxing)
 
 .comment        0x00000000       0x28
  .comment       0x00000000       0x28 build-sim/main.o

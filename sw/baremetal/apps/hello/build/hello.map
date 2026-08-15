@@ -91,95 +91,103 @@ LOAD build/startup.o
 LOAD build/uart.o
 LOAD /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a
 
-.isr_vector     0x00000000       0x40
+.isr_vector     0x00000000       0x60
  *(.isr_vector)
- .isr_vector    0x00000000       0x40 build/startup.o
+ .isr_vector    0x00000000       0x60 build/startup.o
                 0x00000000                vector_table
 
-.text           0x00000040      0x290
+.text           0x00000060      0x290
  *(.text*)
- .text.delay    0x00000040       0x12 build/main.o
- *fill*         0x00000052        0x2 
- .text.main     0x00000054       0x5c build/main.o
-                0x00000054                main
+ .text.delay    0x00000060       0x12 build/main.o
+ *fill*         0x00000072        0x2 
+ .text.main     0x00000074       0x5c build/main.o
+                0x00000074                main
  .text.Default_Handler
-                0x000000b0        0x2 build/startup.o
-                0x000000b0                HardFault_Handler
-                0x000000b0                SysTick_Handler
-                0x000000b0                PendSV_Handler
-                0x000000b0                NMI_Handler
-                0x000000b0                SVC_Handler
- *fill*         0x000000b2        0x2 
+                0x000000d0        0x2 build/startup.o
+                0x000000d0                HardFault_Handler
+                0x000000d0                TIMER0_Handler
+                0x000000d0                SysTick_Handler
+                0x000000d0                PendSV_Handler
+                0x000000d0                NMI_Handler
+                0x000000d0                TIMER1_Handler
+                0x000000d0                RTC_Handler
+                0x000000d0                UARTOVF_Handler
+                0x000000d0                UART1_Handler
+                0x000000d0                I2C_Handler
+                0x000000d0                SVC_Handler
+                0x000000d0                UART0_Handler
+                0x000000d0                GPIO0_Handler
+ *fill*         0x000000d2        0x2 
  .text.Reset_Handler
-                0x000000b4       0x10 build/startup.o
-                0x000000b4                Reset_Handler
+                0x000000d4       0x10 build/startup.o
+                0x000000d4                Reset_Handler
  .text.reset_main
-                0x000000c4       0x3c build/startup.o
-                0x000000c4                reset_main
+                0x000000e4       0x3c build/startup.o
+                0x000000e4                reset_main
  .text.uart_init
-                0x00000100       0x24 build/uart.o
-                0x00000100                uart_init
+                0x00000120       0x24 build/uart.o
+                0x00000120                uart_init
  .text.uart_putc
-                0x00000124       0x14 build/uart.o
-                0x00000124                uart_putc
+                0x00000144       0x14 build/uart.o
+                0x00000144                uart_putc
  .text.uart_puts
-                0x00000138       0x24 build/uart.o
-                0x00000138                uart_puts
+                0x00000158       0x24 build/uart.o
+                0x00000158                uart_puts
  .text.uart_puthex
-                0x0000015c       0x30 build/uart.o
-                0x0000015c                uart_puthex
- .text          0x0000018c      0x114 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
-                0x0000018c                __udivsi3
-                0x0000018c                __aeabi_uidiv
-                0x00000298                __aeabi_uidivmod
- .text          0x000002a0        0x4 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
-                0x000002a0                __aeabi_ldiv0
-                0x000002a0                __aeabi_idiv0
+                0x0000017c       0x30 build/uart.o
+                0x0000017c                uart_puthex
+ .text          0x000001ac      0x114 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+                0x000001ac                __udivsi3
+                0x000001ac                __aeabi_uidiv
+                0x000002b8                __aeabi_uidivmod
+ .text          0x000002c0        0x4 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+                0x000002c0                __aeabi_ldiv0
+                0x000002c0                __aeabi_idiv0
  *(.rodata*)
  .rodata.main.str1.4
-                0x000002a4       0x16 build/main.o
+                0x000002c4       0x16 build/main.o
                                  0x1a (size before relaxing)
- *fill*         0x000002ba        0x2 
+ *fill*         0x000002da        0x2 
  .rodata.digits.0
-                0x000002bc       0x11 build/uart.o
-                0x000002d0                        . = ALIGN (0x4)
- *fill*         0x000002cd        0x3 
+                0x000002dc       0x11 build/uart.o
+                0x000002f0                        . = ALIGN (0x4)
+ *fill*         0x000002ed        0x3 
 
-.glue_7         0x000002d0        0x0
- .glue_7        0x000002d0        0x0 linker stubs
+.glue_7         0x000002f0        0x0
+ .glue_7        0x000002f0        0x0 linker stubs
 
-.glue_7t        0x000002d0        0x0
- .glue_7t       0x000002d0        0x0 linker stubs
+.glue_7t        0x000002f0        0x0
+ .glue_7t       0x000002f0        0x0 linker stubs
 
-.vfp11_veneer   0x000002d0        0x0
- .vfp11_veneer  0x000002d0        0x0 linker stubs
+.vfp11_veneer   0x000002f0        0x0
+ .vfp11_veneer  0x000002f0        0x0 linker stubs
 
-.v4_bx          0x000002d0        0x0
- .v4_bx         0x000002d0        0x0 linker stubs
+.v4_bx          0x000002f0        0x0
+ .v4_bx         0x000002f0        0x0 linker stubs
 
-.iplt           0x000002d0        0x0
- .iplt          0x000002d0        0x0 build/main.o
+.iplt           0x000002f0        0x0
+ .iplt          0x000002f0        0x0 build/main.o
 
-.rel.dyn        0x000002d0        0x0
- .rel.iplt      0x000002d0        0x0 build/main.o
+.rel.dyn        0x000002f0        0x0
+ .rel.iplt      0x000002f0        0x0 build/main.o
 
 .results        0x20000000        0x0
                 0x20000000                        . = ALIGN (0x4)
  *(.results)
                 0x20000000                        . = ALIGN (0x4)
-                0x000002d0                        _sidata = LOADADDR (.data)
+                0x000002f0                        _sidata = LOADADDR (.data)
 
-.data           0x20000000        0x0 load address 0x000002d0
+.data           0x20000000        0x0 load address 0x000002f0
                 0x20000000                        . = ALIGN (0x4)
                 0x20000000                        _sdata = .
  *(.data*)
                 0x20000000                        . = ALIGN (0x4)
                 0x20000000                        _edata = .
 
-.igot.plt       0x20000000        0x0 load address 0x000002d0
+.igot.plt       0x20000000        0x0 load address 0x000002f0
  .igot.plt      0x20000000        0x0 build/main.o
 
-.bss            0x20000000        0x0 load address 0x000002d0
+.bss            0x20000000        0x0 load address 0x000002f0
                 0x20000000                        . = ALIGN (0x4)
                 0x20000000                        _sbss = .
  *(.bss*)
@@ -250,12 +258,12 @@ LOAD linker stubs
  .debug_macro   0x00001513       0x7a build/startup.o
  .debug_macro   0x0000158d       0x93 build/uart.o
 
-.debug_line     0x00000000      0x5d2
+.debug_line     0x00000000      0x5d4
  .debug_line    0x00000000      0x19c build/main.o
- .debug_line    0x0000019c      0x185 build/startup.o
- .debug_line    0x00000321      0x211 build/uart.o
- .debug_line    0x00000532       0x56 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
- .debug_line    0x00000588       0x4a /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+ .debug_line    0x0000019c      0x187 build/startup.o
+ .debug_line    0x00000323      0x211 build/uart.o
+ .debug_line    0x00000534       0x56 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .debug_line    0x0000058a       0x4a /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
 
 .debug_str      0x00000000     0x55f9
  .debug_str     0x00000000     0x55f9 build/main.o

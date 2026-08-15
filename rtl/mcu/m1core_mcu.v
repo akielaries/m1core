@@ -223,8 +223,12 @@ module m1core_mcu #(
   );
 
   // bus fabric and slaves
-  wire        hsel_itcm, hsel_dtcm, hsel_gpio, hsel_apb, hsel_ppb;
-  wire [31:0] hrdata_itcm, hrdata_dtcm, hrdata_gpio, hrdata_apb, hrdata_ppb;
+  //
+  // the fabric's port list is one group per slave, so it changes whenever a
+  // peripheral or an expansion window is added. generated for that reason
+  // BEGIN GENERATED fabric
+  wire        hsel_itcm, hsel_dtcm, hsel_gpio0, hsel_apb, hsel_ppb;
+  wire [31:0] hrdata_itcm, hrdata_dtcm, hrdata_gpio0, hrdata_apb, hrdata_ppb;
   wire        hreadyout_apb;
 
   ahb_fabric u_fabric (
@@ -235,37 +239,38 @@ module m1core_mcu #(
     .hrdata      (hrdata),
     .hready      (hready),
     .hresp       (hresp),
-    .hsel_itcm   (hsel_itcm),
-    .hsel_dtcm   (hsel_dtcm),
-    .hsel_gpio   (hsel_gpio),
-    .hsel_apb    (hsel_apb),
-    .hsel_ppb    (hsel_ppb),
-    .hrdata_itcm (hrdata_itcm),
-    .hrdata_dtcm (hrdata_dtcm),
-    .hrdata_gpio (hrdata_gpio),
-    .hrdata_apb  (hrdata_apb),
-    .hrdata_ppb  (hrdata_ppb),
-    // every slave is zero wait state today. an ahb to apb bridge will drive a
-    // real hreadyout here
+    .hsel_itcm      (hsel_itcm),
+    .hsel_dtcm      (hsel_dtcm),
+    .hsel_gpio0     (hsel_gpio0),
+    .hsel_apb       (hsel_apb),
+    .hsel_ppb       (hsel_ppb),
+    .hrdata_itcm    (hrdata_itcm),
+    .hrdata_dtcm    (hrdata_dtcm),
+    .hrdata_gpio0   (hrdata_gpio0),
+    .hrdata_apb     (hrdata_apb),
+    .hrdata_ppb     (hrdata_ppb),
+    // internal slaves are all zero wait state; the apb bridge and any
+    // expansion window drive a real hreadyout
     .hreadyout_itcm (1'b1),
     .hreadyout_dtcm (1'b1),
-    .hreadyout_gpio (1'b1),
+    .hreadyout_gpio0 (1'b1),
     .hreadyout_apb  (hreadyout_apb),
     .hreadyout_ppb  (1'b1)
   );
+  // END GENERATED fabric
 
   ahb_gpio #(
     .WIDTH (GPIO_WIDTH)
   ) u_gpio (
     .clk    (clk),
     .rst_n  (rst_n_i),
-    .hsel   (hsel_gpio),
+    .hsel   (hsel_gpio0),
     .haddr  (haddr),
     .hwrite (hwrite),
     .htrans (htrans),
     .hready (hready),
     .hwdata (hwdata),
-    .hrdata (hrdata_gpio),
+    .hrdata (hrdata_gpio0),
     .gpio_o (gpio)
   );
 

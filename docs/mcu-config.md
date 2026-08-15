@@ -195,11 +195,89 @@ new block is at fault.
    `make checkgen` fails the regression if the two ever disagree.
 4. **Exceptions and NVIC.** The gate to m1kern and to interrupts being useful.
 5. **More peripherals**, which by then are cheap.
-6. **GUI**, a form over the YAML.
+6. **GUI**, a form over the YAML. *Done:* `tools/m1core_config.py`.
+
+## The configurator
+
+```
+python3 tools/m1core_config.py [boards/gw5a25/mcu.yaml]
+```
+
+Same job as Gowin's "Gowin EMPU M1" dialog and the same shape: general settings
+on top, then a block diagram with the core, the AHB band and the APB band.
+Click an instantiated block to edit its base address, IRQ and width; click a
+dashed one to add that peripheral; the greyed blocks are the ones Gowin offers
+that m1core does not implement yet. **Save and Generate** writes `mcu.yaml` and
+runs the same four outputs `make checkgen` verifies.
+
+Three properties are worth keeping:
+
+**The palette is not a list in the GUI.** Every `tools/peripherals/<type>.yaml`
+becomes a block, and which band it lands in comes from whether its `module` is
+`ahb_*` or `apb_*`. Adding a peripheral type to the generator makes it appear in
+the configurator with no edit to the GUI at all.
+
+**No validation lives here.** The window calls `m1core_gen.validate()`, so the
+GUI cannot produce a configuration the command line would reject, and the error
+text is written once. Generate is disabled while anything fails.
+
+**mcu.yaml is edited, not rewritten.** That file's comments are the reasoning
+behind the configuration; a pyyaml load-and-dump would delete every one of them,
+and ruamel is not installed. So `tools/mcu_yaml.py` substitutes scalars on their
+own line and regenerates only the peripherals block, re-attaching the comment
+lines above each entry by peripheral name. `make checkyaml` reads the file,
+writes it back unchanged and requires the bytes to be identical, which is the
+whole safety argument for editing in place.
+
+## Expansion windows
+
+Gowin's dialog calls these "AHB master 1-6" and "APB master 1-16". They are the
+windows you attach your own logic to; from the CPU's point of view the attached
+block is a slave.
+
+```yaml
+  expansion:
+    apb: { base: 0x60000000, slots: 16, size_kb: 1024,  enabled: 0 }
+    ahb: { base: 0x80000000, slots: 6,  size_kb: 16384, enabled: 0 }
+```
+
+`slots` is how many the address map reserves. `enabled` is how many are actually
+decoded by the fabric and brought out as ports on the MCU top, and it defaults
+to none: six unused AHB port bundles on the top level is noise in the netlist.
+
+**These were fiction until they were generated.** The header defined
+`AHB_EXPAND_BASE 0x80000000` and the memory map documented it, but
+`ahb_fabric.v` decoded only `0x0/0x2/0x4/0x5/0xe00`. An access to an expansion
+window selected nothing, returned zero, and raised no error, which is
+indistinguishable from hardware that works and reads back zero. Two things
+changed so that cannot recur:
+
+- the header only emits an address define for a slot that is actually enabled
+- `tb/tb_exp.sv` attaches a real slave in the window and requires the data back
+
+`tb_exp` runs against RTL generated from `tb/exp_mcu.yaml`, **not** from the
+board file, so what it tests is the generator rather than the one configuration
+that happens to be checked in. It also checks the top of the window decodes, an
+address one past the window does not, and an unmapped read still returns zero.
+
+The APB window is not implemented: it needs its own `ahb_apb_bridge` behind the
+decode and nothing generates one yet. `validate()` rejects enabling it rather
+than emitting a decode with nothing behind it, which is the failure above.
+
+## The AHB fabric is generated
+
+`rtl/mcu/ahb_fabric.v` is generated in full, and the fabric wiring inside
+`m1core_mcu.v` is a generated region, because the fabric's port list is one
+group per slave. Adding a peripheral or an expansion window changes it.
+
+This is also what makes more than one AHB peripheral possible: AHB peripherals
+are now decoded to their own size rather than to the whole `0x4` nibble. The
+remaining limitation is the MCU top, where the GPIO instance is still hand
+wired, so `validate()` still refuses a second AHB peripheral.
 
 ## GUI technology
 
-Python with Qt (PySide6), when the time comes.
+Python with Qt (PySide6).
 
 The generator is Python, so the GUI can import it directly rather than shelling
 out and parsing text, and there is one language to maintain. It matches the

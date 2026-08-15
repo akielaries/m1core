@@ -11,6 +11,7 @@ MVP_RTL := $(DAP_RTL) \
            $(ROOT)/rtl/mcu/ahb_sram.v \
            $(ROOT)/rtl/periph/ahb_gpio.v \
            $(ROOT)/rtl/periph/apb_uart.v \
+           $(ROOT)/rtl/periph/apb_timer.v \
            $(ROOT)/rtl/mcu/ahb_apb_bridge.v \
            $(ROOT)/rtl/mcu/m1core_apb.v \
            $(ROOT)/rtl/mcu/ahb_arb.v \
@@ -20,22 +21,29 @@ MVP_RTL := $(DAP_RTL) \
 
 IFLAGS := -g2012 -Wall -I$(ROOT)/tb
 
-.PHONY: all checkproj checkgen dap core exc blink uart hello mvp fw m1kern wave clean
+.PHONY: all checkproj checkgen checkyaml dap core exc blink uart hello mvp exp fw m1kern wave clean
 
-all: checkproj checkgen dap core exc blink uart hello mvp
+all: checkproj checkgen checkyaml dap core exc blink uart hello mvp exp
 
 # the gowin project keeps its own file list, so it can drift from the rtl on
 # disk without simulation noticing. this is the cheap way to catch that
 checkproj:
 	@python3 $(ROOT)/tools/check_project.py
 
-# the device header is generated from the soc description. this catches a hand
+# the device header is generated from the mcu description. this catches a hand
 # edit to the header, or a change to the mcu.yaml that was never regenerated
+# the configurator writes mcu.yaml back in place to keep its comments. this is
+# the check that the in place editing is faithful: read the file, write it back
+# with nothing changed, and require the bytes to be identical
+checkyaml:
+	@python3 $(ROOT)/tools/mcu_yaml.py $(ROOT)/boards/gw5a25/mcu.yaml
+
 checkgen:
 	@python3 $(ROOT)/tools/m1core_gen.py $(ROOT)/boards/gw5a25/mcu.yaml \
 	    --header $(ROOT)/sw/baremetal/bsp/m1core.h \
 	    --memmap $(ROOT)/docs/memory-map.md \
 	    --apb-rtl $(ROOT)/rtl/mcu/m1core_apb.v \
+	    --ahb-rtl $(ROOT)/rtl/mcu/ahb_fabric.v \
 	    --mcu-rtl $(ROOT)/rtl/mcu/m1core_mcu.v --check
 
 dap: $(BUILD)/tb_dap
@@ -54,6 +62,9 @@ uart: $(BUILD)/tb_uart
 	$(VVP) $<
 
 hello: $(BUILD)/tb_hello fw
+	$(VVP) $<
+
+exp: $(BUILD)/tb_exp
 	$(VVP) $<
 
 mvp: $(BUILD)/tb_mvp fw
@@ -86,6 +97,23 @@ wave: $(BUILD)/tb_mvp
 
 $(BUILD)/tb_dap: $(DAP_RTL) $(ROOT)/tb/tb_dap.sv $(ROOT)/tb/swd_host.svh | $(BUILD)
 	$(IVERILOG) $(IFLAGS) -o $@ $(DAP_RTL) $(ROOT)/tb/tb_dap.sv
+
+# the expansion test runs against rtl generated from tb/exp_mcu.yaml rather
+# than from the board file, so it tests the generator and not just the one
+# configuration that happens to be checked in. m1core_mcu.v is spliced, not
+# written whole, so the board copy is the starting point
+GEN := $(BUILD)/gen
+EXP_RTL := $(filter-out $(ROOT)/rtl/mcu/ahb_fabric.v $(ROOT)/rtl/mcu/m1core_mcu.v,$(MVP_RTL)) \
+           $(GEN)/ahb_fabric.v $(GEN)/m1core_mcu.v
+
+$(GEN)/m1core_mcu.v $(GEN)/ahb_fabric.v: $(ROOT)/tb/exp_mcu.yaml $(ROOT)/rtl/mcu/m1core_mcu.v $(ROOT)/tools/m1core_gen.py
+	@mkdir -p $(GEN)
+	@cp $(ROOT)/rtl/mcu/m1core_mcu.v $(GEN)/m1core_mcu.v
+	@python3 $(ROOT)/tools/m1core_gen.py $(ROOT)/tb/exp_mcu.yaml \
+	    --mcu-rtl $(GEN)/m1core_mcu.v --ahb-rtl $(GEN)/ahb_fabric.v
+
+$(BUILD)/tb_exp: $(EXP_RTL) $(ROOT)/tb/tb_exp.sv $(ROOT)/tb/swd_host.svh | $(BUILD)
+	$(IVERILOG) $(IFLAGS) -o $@ $(EXP_RTL) $(ROOT)/tb/tb_exp.sv
 
 $(BUILD)/tb_mvp: $(MVP_RTL) $(ROOT)/tb/tb_mvp.sv $(ROOT)/tb/swd_host.svh | $(BUILD)
 	$(IVERILOG) $(IFLAGS) -o $@ $(MVP_RTL) $(ROOT)/tb/tb_mvp.sv

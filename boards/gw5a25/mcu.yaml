@@ -52,6 +52,14 @@ mcu:
       irq: 4
       width: 2
 
+    # timer0 sits at the gowin/cmsdk offset. m1kern owns SysTick, so an
+    # application that wants its own time base uses this
+    - type: timer
+      name: timer0
+      bus: apb
+      base: 0x50000000
+      irq: 2
+
     - type: uart
       name: uart0
       bus: apb
@@ -63,6 +71,11 @@ mcu:
   # drop your own in without touching the map. Gowin calls these "AHB master
   # 1-6" and "APB master 1-16"; they are slaves from the CPU's point of view
   # ---------------------------------------------------------------------------
+  # `slots` is how many the address map reserves, `enabled` how many are
+  # actually decoded by the fabric and brought out as ports on the mcu top.
+  # they were reserved but never decoded at first, so an access to one returned
+  # zero with no error and looked like working hardware. nothing is wired now
+  # unless it is counted here
   expansion:
-    apb: { base: 0x60000000, slots: 16, size_kb: 1024 }
-    ahb: { base: 0x80000000, slots: 6,  size_kb: 16384 }
+    apb: { base: 0x60000000, slots: 16, size_kb: 1024,  enabled: 0 }
+    ahb: { base: 0x80000000, slots: 6,  size_kb: 16384, enabled: 0 }

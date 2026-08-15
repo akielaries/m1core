@@ -1,0 +1,45 @@
+# mcu description used only by tb_exp
+#
+# same as the board, with one ahb expansion window turned on. the point is to
+# generate a configuration the board does not use, so the test proves the
+# generator produces working rtl rather than proving the one checked in file
+# happens to work
+mcu:
+  name: m1core_exp_test
+
+  cpu:
+    itcm_kb: 32
+    dtcm_kb: 16
+
+  clock:
+    hz: 25000000
+    source: "simulation"
+
+  debug:
+    transport: swd
+    dpidr: 0x0C101477
+    cpuid: 0x410CC210
+
+  peripherals:
+    - type: gpio
+      name: gpio0
+      bus: ahb
+      base: 0x40000000
+      irq: 4
+      width: 2
+
+    - type: timer
+      name: timer0
+      bus: apb
+      base: 0x50000000
+      irq: 2
+
+    - type: uart
+      name: uart0
+      bus: apb
+      base: 0x50004000
+      irq: 0
+
+  expansion:
+    apb: { base: 0x60000000, slots: 16, size_kb: 1024,  enabled: 0 }
+    ahb: { base: 0x80000000, slots: 6,  size_kb: 16384, enabled: 1 }

@@ -15,5 +15,5 @@ create_clock -name HCLK -period 20 -waveform {0 10} [get_ports {HCLK}]
 // build reported required=12.9 ns on a path between two clk_sys registers,
 // which is neither the 20 ns nor the 40 ns period and is not a number any
 // decision should be based on
-create_generated_clock -name clk_sys -source [get_ports {HCLK}] -divide_by 2 \
-    [get_nets {clk_sys}]
+// must be one line: gowin's sdc parser does not accept backslash continuation
+create_generated_clock -name clk_sys -source [get_ports {HCLK}] -divide_by 2 [get_nets {clk_sys}]

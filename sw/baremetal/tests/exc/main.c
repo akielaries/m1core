@@ -16,6 +16,14 @@
    overwrite its own state as it reported */
 __attribute__((section(".results"))) volatile uint32_t results[8];
 
+#define NVIC_ISER   (*(volatile uint32_t *)0xE000E100u)
+#define NVIC_ICER   (*(volatile uint32_t *)0xE000E180u)
+#define NVIC_ICPR   (*(volatile uint32_t *)0xE000E280u)
+#define NVIC_IPR0   (*(volatile uint32_t *)0xE000E400u)
+
+#define TIMER_CTRL_EN    (1u << 0)
+#define TIMER_CTRL_IRQEN (1u << 3)
+
 #define SCS_ICSR    (*(volatile uint32_t *)0xE000ED04u)
 #define SCS_SHPR2   (*(volatile uint32_t *)0xE000ED1Cu)
 #define SCS_SHPR3   (*(volatile uint32_t *)0xE000ED20u)
@@ -34,6 +42,8 @@ static volatile uint32_t deep_count;
 
 static uint32_t psp_stack[64];
 static volatile uint32_t dbg_deep, dbg_pend;
+static volatile uint32_t timer_count;
+static volatile uint32_t timer_ipsr;
 static volatile uint32_t fault_count;
 static volatile uint32_t fault_pc;
 
@@ -100,6 +110,23 @@ void hardfault_c(uint32_t *frame)
   /* skip the faulting instruction so the test can carry on. every fault it
      provokes is a 2 byte encoding */
   frame[6] = frame[6] + 2u;
+}
+
+/*
+ * the first external interrupt this design has ever taken. everything before it
+ * was SysTick, PendSV or SVC, which the core raises itself. this one comes in
+ * on a pin of the nvic from a peripheral, through the enable and priority
+ * logic, and out to the vector table
+ */
+void TIMER0_Handler(void)
+{
+  uint32_t ipsr;
+
+  timer_count++;
+  __asm volatile("mrs %0, ipsr" : "=r"(ipsr));
+  timer_ipsr = ipsr;
+
+  TIMER0->INTSTATUS = 1u;   /* write one to clear at the peripheral */
 }
 
 void SVC_Handler(void)
@@ -218,6 +245,39 @@ int main(void)
     check(psp_read == psp_top);
   }
 
+  /* --- external interrupt from timer0 on irq 2 --- */
+  {
+    uint32_t i;
+
+    timer_count = 0u;
+    NVIC_ICPR   = (1u << TIMER0_IRQn);      /* clear anything stale */
+    NVIC_IPR0   = (1u << 22);               /* irq2 priority 1 of 3 */
+    NVIC_ISER   = (1u << TIMER0_IRQn);
+
+    TIMER0->RELOAD = 200u;
+    TIMER0->CTRL   = TIMER_CTRL_EN | TIMER_CTRL_IRQEN;
+
+    for (i = 0; i < 200000u && timer_count < 3u; i++) {
+    }
+
+    check(timer_count >= 3u);
+
+    /* the handler must have run as exception 18: irq 2 is exception 16 + 2 */
+    check(timer_ipsr == 18u);
+
+    /* masking at the nvic stops it reaching the core */
+    NVIC_ICER = (1u << TIMER0_IRQn);
+    {
+      uint32_t before = timer_count;
+      for (i = 0; i < 20000u; i++) {
+      }
+      check(timer_count == before);
+    }
+
+    TIMER0->CTRL = 0u;
+    NVIC_ICPR    = (1u << TIMER0_IRQn);
+  }
+
   /*
    * --- faults ---
    *
@@ -260,6 +320,7 @@ int main(void)
     check(ipsr == 0u);
   }
 
+  out[6] = test_id;
   out[7] = fault_count;
   out[5] = fail_mask;
   out[6] = test_id;

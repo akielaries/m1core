@@ -1,0 +1,27 @@
+# register layout for the m1core timer
+#
+# cmsdk compatible, which is also what gowin's empu m1 exposes, so a driver
+# written against either part works unchanged
+type: timer
+struct: timer_t
+doc: cmsdk compatible down counting timer
+size: 0x1000
+module: apb_timer
+
+# no external pins: the cmsdk external enable and clock inputs are not wired
+pins: []
+
+irq_port: irq
+
+registers:
+  - { name: CTRL,      offset: 0x00, doc: "[0]EN [1]SELEXTEN [2]SELEXTCLK [3]IRQEN" }
+  - { name: VALUE,     offset: 0x04, doc: "current value, counts down" }
+  - { name: RELOAD,    offset: 0x08, doc: "loaded when the counter wraps" }
+  - { name: INTSTATUS, offset: 0x0c, doc: "read pending, write one to clear" }
+
+bits:
+  CTRL:
+    EN: 0
+    SELEXTEN: 1
+    SELEXTCLK: 2
+    IRQEN: 3

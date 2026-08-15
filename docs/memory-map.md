@@ -16,6 +16,7 @@ This build is `m1core_tang25k`, 32 KB ITCM and 16 KB DTCM, clocked at 25 MHz.
 | 0x0000_0000 | ITCM | AHB | - |
 | 0x2000_0000 | DTCM | AHB | - |
 | 0x4000_0000 | GPIO0 | AHB | 4 |
+| 0x5000_0000 | TIMER0 | APB | 2 |
 | 0x5000_4000 | UART0 | APB | 0 |
 | 0xE000_0000 | PPB | AHB | - |
 <!-- END GENERATED -->

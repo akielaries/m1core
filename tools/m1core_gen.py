@@ -36,7 +36,7 @@ PERIPH_DIR = os.path.join(HERE, "peripherals")
 # can be tested without clicking anything
 # ---------------------------------------------------------------------------
 
-def load_soc(path):
+def load_mcu(path):
     with open(path) as f:
         doc = yaml.safe_load(f)
     if "mcu" not in doc:
@@ -44,9 +44,9 @@ def load_soc(path):
     return doc["mcu"]
 
 
-def load_periph_types(soc):
+def load_periph_types(mcu):
     types = {}
-    for p in soc.get("peripherals", []):
+    for p in mcu.get("peripherals", []):
         t = p["type"]
         if t in types:
             continue
@@ -58,9 +58,9 @@ def load_periph_types(soc):
     return types
 
 
-def validate(soc, types):
+def validate(mcu, types):
     errors = []
-    periphs = soc.get("peripherals", [])
+    periphs = mcu.get("peripherals", [])
 
     seen_names = set()
     seen_irqs = {}
@@ -96,7 +96,51 @@ def validate(soc, types):
             errors.append(
                 f"{a_name} [{a_lo:#x},{a_hi:#x}) overlaps {b_name} [{b_lo:#x},{b_hi:#x})")
 
-    if not soc.get("clock", {}).get("hz"):
+    # a base has to sit inside the window its bus actually decodes. without this
+    # an apb peripheral placed at 0x4... generates a decode the fabric never
+    # selects, and the block is simply dead with no diagnostic anywhere
+    for p in periphs:
+        bus = p.get("bus")
+        if bus in BUS_WINDOW:
+            lo, hi = BUS_WINDOW[bus]
+            if not lo <= p["base"] < hi:
+                errors.append(
+                    f"{p['name']}: base {p['base']:#x} is outside the {bus} window "
+                    f"[{lo:#x},{hi:#x}), which is what rtl/mcu/ahb_fabric.v decodes")
+
+    # the ahb side of the fabric is still hand written with one named slot for
+    # gpio, so unlike apb it cannot absorb another peripheral. generating it is
+    # the fix; until then say so rather than emitting rtl that quietly drops it
+    ahb = [p for p in periphs if p.get("bus") == "ahb"]
+    if len(ahb) > 1:
+        errors.append(
+            "more than one ahb peripheral (" + ", ".join(p["name"] for p in ahb) +
+            "): rtl/mcu/ahb_fabric.v has a single hardwired ahb slot and the "
+            "generator would silently drop the rest. put it on apb, or generate "
+            "the fabric decode first")
+    for p in ahb:
+        if p["type"] != "gpio":
+            errors.append(
+                f"{p['name']}: the one ahb slot in rtl/mcu/ahb_fabric.v is wired "
+                f"as gpio, so type '{p['type']}' cannot go there yet")
+
+    # the apb expansion window needs its own ahb to apb bridge, which nothing
+    # generates yet. say so rather than emitting a decode with no bridge behind
+    # it, which is the exact failure this window already had once
+    exp = mcu.get("expansion", {})
+    for bus in ("ahb", "apb"):
+        cfg = exp.get(bus) or {}
+        n, slots = int(cfg.get("enabled", 0)), int(cfg.get("slots", 0))
+        if n > slots:
+            errors.append(f"expansion.{bus}: enabled {n} exceeds the {slots} "
+                          f"slots the address map reserves")
+        if bus == "apb" and n:
+            errors.append(
+                "expansion.apb: not implemented. the window needs its own "
+                "ahb_apb_bridge and nothing generates one yet, so enabling it "
+                "would decode an address with no bridge behind it")
+
+    if not mcu.get("clock", {}).get("hz"):
         errors.append("mcu.clock.hz is required: software cannot read it back")
 
     return errors
@@ -106,6 +150,12 @@ def validate(soc, types):
 # C header
 # ---------------------------------------------------------------------------
 
+# what rtl/mcu/ahb_fabric.v decodes on haddr[31:28], see in_gpio and in_apb
+BUS_WINDOW = {
+    "ahb": (0x40000000, 0x50000000),
+    "apb": (0x50000000, 0x60000000),
+}
+
 REGION_DEFS = [
     ("ITCM_BASE", 0x00000000),
     ("DTCM_BASE", 0x20000000),
@@ -114,7 +164,7 @@ REGION_DEFS = [
 ]
 
 
-def gen_header(soc, types, source):
+def gen_header(mcu, types, source):
     o = []
     w = o.append
 
@@ -133,7 +183,7 @@ def gen_header(soc, types, source):
     w("#include <stdint.h>")
     w("")
 
-    clk = soc["clock"]
+    clk = mcu["clock"]
     w("/* the fabric clock. software cannot read this back, there is no PLL to")
     w(f"   interrogate: {clk.get('source', 'see the board top level')} */")
     w(f"#define SYSTEM_CLOCK_HZ  {clk['hz']}u")
@@ -142,14 +192,21 @@ def gen_header(soc, types, source):
     w("/* address regions */")
     for name, addr in REGION_DEFS:
         w(f"#define {name:<16} {addr:#010x}u")
-    exp = soc.get("expansion", {})
-    if "apb" in exp:
-        w(f"#define {'APB_EXPAND_BASE':<16} {exp['apb']['base']:#010x}u")
-    if "ahb" in exp:
-        w(f"#define {'AHB_EXPAND_BASE':<16} {exp['ahb']['base']:#010x}u")
-    w("")
+    # only the enabled slots get an address define. emitting the window base
+    # unconditionally is what made these windows look real when the fabric
+    # decoded nothing there and an access returned zero with no error
+    for bus in ("apb", "ahb"):
+        slots = expansion_slots(mcu, bus)
+        if not slots:
+            continue
+        w(f"/* {bus} expansion windows, decoded by the fabric and brought out")
+        w(f"   on the mcu top for user logic */")
+        for name, base, size in slots:
+            w(f"#define {name.upper() + '_BASE':<16} {base:#010x}u"
+              f"   /* {_size_str(size)} */")
+        w("")
 
-    periphs = soc.get("peripherals", [])
+    periphs = mcu.get("peripherals", [])
 
     w("/* peripheral instances */")
     for p in periphs:
@@ -208,14 +265,14 @@ def gen_header(soc, types, source):
     return "\n".join(o) + "\n"
 
 
-def gen_apb_rtl(soc, types, source):
+def gen_apb_rtl(mcu, types, source):
     """the apb subsystem: address decode, peripheral instances, irq vector
 
     only APB peripherals are generated. AHB ones sit directly in the fabric,
     whose decode is hand written and where there is currently exactly one. this
     is where the system grows, so this is where generation pays.
     """
-    apb = [p for p in soc.get("peripherals", []) if p.get("bus") == "apb"]
+    apb = [p for p in mcu.get("peripherals", []) if p.get("bus") == "apb"]
 
     o = []
     w = o.append
@@ -353,7 +410,7 @@ BEGIN_MARK = "<!-- BEGIN GENERATED, do not edit: tools/m1core_gen.py --memmap --
 END_MARK = "<!-- END GENERATED -->"
 
 
-def gen_memmap(soc, types, source):
+def gen_memmap(mcu, types, source):
     """the section of the memory map document describing what this build
     actually contains. the surrounding prose and the reference map of planned
     blocks stay hand written: only the facts that can drift are generated"""
@@ -362,9 +419,9 @@ def gen_memmap(soc, types, source):
 
     w(f"*Generated from {source}. Everything below the END marker is hand written.*")
     w("")
-    w(f"This build is `{soc.get('name', 'm1core')}`, "
-      f"{soc['cpu']['itcm_kb']} KB ITCM and {soc['cpu']['dtcm_kb']} KB DTCM, "
-      f"clocked at {soc['clock']['hz'] / 1e6:.0f} MHz.")
+    w(f"This build is `{mcu.get('name', 'm1core')}`, "
+      f"{mcu['cpu']['itcm_kb']} KB ITCM and {mcu['cpu']['dtcm_kb']} KB DTCM, "
+      f"clocked at {mcu['clock']['hz'] / 1e6:.0f} MHz.")
     w("")
     w("| Address | Block | Bus | IRQ |")
     w("| --- | --- | --- | --- |")
@@ -374,7 +431,7 @@ def gen_memmap(soc, types, source):
     for base, name, bus, irq in mem:
         w(f"| {base} | {name} | {bus.upper()} | - |")
 
-    for p in sorted(soc.get("peripherals", []), key=lambda x: x["base"]):
+    for p in sorted(mcu.get("peripherals", []), key=lambda x: x["base"]):
         base = f"0x{p['base'] >> 16:04X}_{p['base'] & 0xFFFF:04X}"
         irq = p["irq"] if p.get("irq") is not None else "-"
         w(f"| {base} | {p['name'].upper()} | {p['bus'].upper()} | {irq} |")
@@ -403,10 +460,192 @@ def splice_region(text, name, block):
     return head + begin + "\n" + block + indent + end + tail
 
 
-def gen_mcu_regions(soc, types, source):
-    """the two parts of m1core_mcu.v that depend on the peripheral list:
-    the external pin ports, and the pin connections on the apb instance"""
-    apb = [p for p in soc.get("peripherals", []) if p.get("bus") == "apb"]
+# ---------------------------------------------------------------------------
+# ahb fabric
+# ---------------------------------------------------------------------------
+
+def _size_str(size):
+    if size >= 1 << 20:
+        return f"{size >> 20} MB"
+    return f"{size >> 10} KB"
+
+
+def _decode(base, size):
+    """the haddr comparison that selects a window of `size` bytes at `base`"""
+    lsb = size.bit_length() - 1
+    if size != 1 << lsb:
+        raise ValueError(f"window size {size:#x} is not a power of two")
+    width = 32 - lsb
+    return f"(haddr[31:{lsb}] == {width}'h{base >> lsb:X})"
+
+
+# fixed architectural windows. itcm and dtcm own a whole 256 MB nibble each so
+# a linker script can put anything anywhere inside them, and the ppb is the
+# 1 MB the armv6-m architecture places the scs and rom table in
+NIBBLE = 0x10000000
+FIXED_SLAVES = [
+    ("itcm", 0x00000000, NIBBLE),
+    ("dtcm", 0x20000000, NIBBLE),
+]
+
+
+def ahb_slaves(mcu, types):
+    """every slave on the fabric, in decode order
+
+    ahb peripherals are decoded to their own size rather than to the whole 0x4
+    nibble, which is what lets there be more than one of them
+    """
+    slaves = list(FIXED_SLAVES)
+
+    for p in mcu.get("peripherals", []):
+        if p.get("bus") == "ahb":
+            slaves.append((p["name"], p["base"], types[p["type"]].get("size", 0x1000)))
+
+    slaves.append(("apb", BUS_WINDOW["apb"][0], NIBBLE))
+
+    for name, base, size in expansion_slots(mcu, "ahb"):
+        slaves.append((name, base, size))
+
+    slaves.append(("ppb", 0xE0000000, 0x100000))
+    return slaves
+
+
+def expansion_slots(mcu, bus):
+    """the user attachment windows, gowin calls these ahb/apb master 1..n
+
+    `slots` is how many the address map reserves, `enabled` how many are
+    actually brought out as ports. generating six unused ahb port bundles onto
+    the top level costs pins in the netlist and noise in the file, so the
+    default is none and you turn on what you attach
+    """
+    exp = mcu.get("expansion", {}).get(bus)
+    if not exp:
+        return []
+    n = int(exp.get("enabled", 0))
+    size = int(exp["size_kb"]) * 1024
+    base = int(exp["base"])
+    return [(f"{bus}exp{i}", base + i * size, size) for i in range(n)]
+
+
+def gen_ahb_rtl(mcu, types, source):
+    o = []
+    w = o.append
+
+    slaves = ahb_slaves(mcu, types)
+    sel_w = max(1, (len(slaves) + 1 - 1).bit_length())
+
+    w("`default_nettype none")
+    w("")
+    w("// ahb-lite address decode and read data mux")
+    w("//")
+    w(f"// generated by tools/m1core_gen.py from {source}, do not edit")
+    w("//")
+    w("// the slave select must be registered as well as decoded, because hrdata")
+    w("// comes back one cycle after the address phase that chose the slave")
+    w("//")
+    w("// memory map:")
+    for name, base, size in slaves:
+        w(f"//   0x{base:08X}  {name}, {_size_str(size)}")
+    w("")
+    w("module ahb_fabric (")
+    w("  input  wire        clk,")
+    w("  input  wire        rst_n,")
+    w("")
+    w("  // from the master")
+    w("  input  wire [31:0] haddr,")
+    w("  input  wire [1:0]  htrans,")
+    w("  output reg  [31:0] hrdata,")
+    w("  output reg         hready,")
+    w("  output wire        hresp,")
+    w("")
+    w("  // slave selects")
+    for name, _, _ in slaves:
+        w(f"  output wire        hsel_{name},")
+    for name, _, _ in slaves:
+        w(f"  input  wire [31:0] hrdata_{name},")
+    w("")
+    w("  // per slave ready. zero wait state slaves tie these high; a bridge to a")
+    w("  // slower bus drives its own low while a transfer is in flight")
+    for i, (name, _, _) in enumerate(slaves):
+        comma = "" if i == len(slaves) - 1 else ","
+        w(f"  input  wire        hreadyout_{name}{comma}")
+    w(");")
+    w("")
+    w(f"  localparam [{sel_w - 1}:0] SEL_NONE = {sel_w}'d0;")
+    for i, (name, _, _) in enumerate(slaves):
+        w(f"  localparam [{sel_w - 1}:0] SEL_{name.upper()} = {sel_w}'d{i + 1};")
+    w("")
+    w("  assign hresp = 1'b0;")
+    w("")
+    for name, base, size in slaves:
+        w(f"  wire in_{name} = {_decode(base, size)};")
+    w("")
+    for name, _, _ in slaves:
+        w(f"  assign hsel_{name} = in_{name};")
+    w("")
+    w(f"  reg [{sel_w - 1}:0] sel_q;")
+    w("")
+    w("  always @(posedge clk or negedge rst_n) begin")
+    w("    if (!rst_n) begin")
+    w("      sel_q <= SEL_NONE;")
+    w("    end else if (htrans[1]) begin")
+    for i, (name, _, _) in enumerate(slaves):
+        kw = "if" if i == 0 else "end else if"
+        w(f"      {kw} (in_{name}) begin")
+        w(f"        sel_q <= SEL_{name.upper()};")
+    w("      end else begin")
+    w("        sel_q <= SEL_NONE;")
+    w("      end")
+    w("    end")
+    w("  end")
+    w("")
+    w("  // hready qualifies both phases and comes from whichever slave owns the")
+    w("  // current data phase, which is the one selected during the address phase")
+    w("  always @(*) begin")
+    w("    case (sel_q)")
+    for name, _, _ in slaves:
+        w(f"      SEL_{name.upper()}: hready = hreadyout_{name};")
+    w("      default:  hready = 1'b1;")
+    w("    endcase")
+    w("  end")
+    w("")
+    w("  always @(*) begin")
+    w("    case (sel_q)")
+    for name, _, _ in slaves:
+        w(f"      SEL_{name.upper()}: hrdata = hrdata_{name};")
+    w("      // an unmapped read returns zero rather than an error, so a stray probe")
+    w("      // access cannot set stickyerr and lock out every later transfer")
+    w("      default:  hrdata = 32'd0;")
+    w("    endcase")
+    w("  end")
+    w("")
+    w("endmodule")
+    w("")
+    w("`default_nettype wire")
+    return "\n".join(o) + "\n"
+
+
+# one ahb-lite slave interface, brought out to the top so user logic can be
+# attached in an expansion window. hready is the global one: an ahb-lite slave
+# needs it to know when the address phase it is seeing is real
+EXP_AHB_PORTS = [
+    ("output wire       ", "hsel"),
+    ("output wire [31:0]", "haddr"),
+    ("output wire       ", "hwrite"),
+    ("output wire [1:0] ", "htrans"),
+    ("output wire [2:0] ", "hsize"),
+    ("output wire [31:0]", "hwdata"),
+    ("output wire       ", "hready"),
+    ("input  wire [31:0]", "hrdata"),
+    ("input  wire       ", "hreadyout"),
+]
+
+
+def gen_mcu_regions(mcu, types, source):
+    """the parts of m1core_mcu.v that depend on the mcu description: external
+    pin ports, the apb instance pin connections, and the whole bus fabric,
+    whose port list changes with every slave added or removed"""
+    apb = [p for p in mcu.get("peripherals", []) if p.get("bus") == "apb"]
 
     ports = []
     conns = []
@@ -417,15 +656,80 @@ def gen_mcu_regions(soc, types, source):
             ports.append(f"  , {d}        {sig}")
             conns.append(f"    , .{sig:<10} ({sig})")
 
+    # expansion windows come out as a full slave interface each
+    exp = [n for n, _, _ in expansion_slots(mcu, "ahb")]
+    for name in exp:
+        ports.append(f"  // {name}: ahb-lite expansion window for user logic")
+        for d, sig in EXP_AHB_PORTS:
+            ports.append(f"  , {d} {name}_{sig}")
+
     return {
         "periph-ports": ("\n".join(ports) + "\n") if ports else "",
         "apb-pins": ("\n".join(conns) + "\n") if conns else "",
+        "fabric": gen_fabric_inst(mcu, types),
     }
 
 
-def splice_mcu(path, soc, types, source):
+def gen_fabric_inst(mcu, types):
+    """the fabric wire declarations and instantiation
+
+    generated because the fabric's port list is one group per slave, so it
+    changes whenever a peripheral or an expansion window is added
+    """
+    slaves = ahb_slaves(mcu, types)
+    exp = {n for n, _, _ in expansion_slots(mcu, "ahb")}
+    o = []
+    w = o.append
+
+    names = [n for n, _, _ in slaves]
+    internal = [n for n in names if n not in exp]
+
+    w("  wire        " + ", ".join(f"hsel_{n}" for n in internal) + ";")
+    w("  wire [31:0] " + ", ".join(f"hrdata_{n}" for n in internal) + ";")
+    w("  wire        hreadyout_apb;")
+    w("")
+    for name in sorted(exp):
+        # the expansion slave sees the same address and data phase the internal
+        # slaves do; only its select is gated by the window decode
+        w(f"  assign {name}_haddr  = haddr;")
+        w(f"  assign {name}_hwrite = hwrite;")
+        w(f"  assign {name}_htrans = htrans;")
+        w(f"  assign {name}_hsize  = hsize;")
+        w(f"  assign {name}_hwdata = hwdata;")
+        w(f"  assign {name}_hready = hready;")
+        w("")
+    w("  ahb_fabric u_fabric (")
+    w("    .clk         (clk),")
+    w("    .rst_n       (rst_n_i),")
+    w("    .haddr       (haddr),")
+    w("    .htrans      (htrans),")
+    w("    .hrdata      (hrdata),")
+    w("    .hready      (hready),")
+    w("    .hresp       (hresp),")
+    for n in names:
+        src = f"{n}_hsel" if n in exp else f"hsel_{n}"
+        w(f"    .hsel_{n:<9} ({src}),")
+    for n in names:
+        src = f"{n}_hrdata" if n in exp else f"hrdata_{n}"
+        w(f"    .hrdata_{n:<7} ({src}),")
+    w("    // internal slaves are all zero wait state; the apb bridge and any")
+    w("    // expansion window drive a real hreadyout")
+    for i, n in enumerate(names):
+        if n in exp:
+            src = f"{n}_hreadyout"
+        elif n == "apb":
+            src = "hreadyout_apb"
+        else:
+            src = "1'b1"
+        comma = "" if i == len(names) - 1 else ","
+        w(f"    .hreadyout_{n:<4} ({src}){comma}")
+    w("  );")
+    return "\n".join(o) + "\n"
+
+
+def splice_mcu(path, mcu, types, source):
     text = open(path).read()
-    for name, block in gen_mcu_regions(soc, types, source).items():
+    for name, block in gen_mcu_regions(mcu, types, source).items():
         text = splice_region(text, name, block)
     return text
 
@@ -441,39 +745,43 @@ def splice_memmap(path, block):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("soc")
+    ap.add_argument("mcu", metavar="mcu.yaml",
+                    help="mcu description, e.g. boards/gw5a25/mcu.yaml")
     ap.add_argument("--header")
     ap.add_argument("--memmap")
     ap.add_argument("--apb-rtl")
     ap.add_argument("--mcu-rtl")
+    ap.add_argument("--ahb-rtl")
     ap.add_argument("--check", action="store_true",
                     help="report whether the file on disk is up to date, write nothing")
     args = ap.parse_args()
 
-    soc = load_soc(args.soc)
-    types = load_periph_types(soc)
+    mcu = load_mcu(args.mcu)
+    types = load_periph_types(mcu)
 
-    errors = validate(soc, types)
+    errors = validate(mcu, types)
     if errors:
         for e in errors:
-            print(f"FAIL {args.soc}: {e}", file=sys.stderr)
+            print(f"FAIL {args.mcu}: {e}", file=sys.stderr)
         return 1
 
     # relative to the repo root, not the invoking directory, or the provenance
     # comment changes with where the tool was run from and --check reports a
     # spurious difference
-    src = os.path.relpath(os.path.abspath(args.soc), REPO)
+    src = os.path.relpath(os.path.abspath(args.mcu), REPO)
 
     outputs = []
     if args.header:
-        outputs.append((args.header, gen_header(soc, types, src)))
+        outputs.append((args.header, gen_header(mcu, types, src)))
     if args.memmap:
         outputs.append((args.memmap,
-                        splice_memmap(args.memmap, gen_memmap(soc, types, src))))
+                        splice_memmap(args.memmap, gen_memmap(mcu, types, src))))
     if args.apb_rtl:
-        outputs.append((args.apb_rtl, gen_apb_rtl(soc, types, src)))
+        outputs.append((args.apb_rtl, gen_apb_rtl(mcu, types, src)))
+    if args.ahb_rtl:
+        outputs.append((args.ahb_rtl, gen_ahb_rtl(mcu, types, src)))
     if args.mcu_rtl:
-        outputs.append((args.mcu_rtl, splice_mcu(args.mcu_rtl, soc, types, src)))
+        outputs.append((args.mcu_rtl, splice_mcu(args.mcu_rtl, mcu, types, src)))
     if not outputs:
         print("nothing to do: pass --header, --memmap and/or --apb-rtl", file=sys.stderr)
         return 1

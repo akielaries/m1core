@@ -173,11 +173,14 @@ timing constraints are not being applied and any slack number is meaningless.
 
 1. Power up with nothing attached. LED[0] blinks: the fabric is clocked and the
    design is alive. GPIO stays still, because the ITCM is empty.
-2. **Slow the probe before scanning.** BMP's `target_clk_divider` defaults to
-   `UINT32_MAX`, which skips its delay loops entirely and bit-bangs SWD at full
-   speed. The phy oversamples SWCLK and needs the system clock to be at least 4x
-   it; at 25 MHz that caps SWCLK around 6 MHz, and BMP's default is likely above
-   that. `mon frequency 500k` first, raise it later once things work.
+2. **Slow the probe before scanning, every session.** BMP's
+   `target_clk_divider` defaults to `UINT32_MAX`, which skips its delay loops
+   entirely and bit-bangs SWD at full speed. That outruns the phy's oversampler
+   and the scan fails, usually as `SWD invalid ACK`.
+
+   The setting does **not** persist: a fresh gdb session or a probe replug is
+   back at the default. `sw/gdbinit` sets it, or type `mon frequency 500k`
+   before `mon swd`.
 3. Attach the probe and read the LED staircase (see `m1_mvp_top.v`):
    LED[1] = SWCLK arriving, LED[2] = line reset recognised, LED[3] = valid packet
    decoded. Each only happens if the previous did, so the first dark one is where

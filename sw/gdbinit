@@ -1,0 +1,25 @@
+# m1core gdb setup
+#
+#   arm-none-eabi-gdb -x sw/gdbinit <elf>
+#
+# the probe frequency is the important line. BMP's target_clk_divider defaults
+# to UINT32_MAX, which skips its delay loops entirely and bit-bangs SWD at full
+# speed. that outruns the phy's oversampler and the scan fails with "SWD invalid
+# ACK" or simply finds nothing.
+#
+# it is NOT persistent: every fresh gdb session, and every probe replug, starts
+# back at the default. this file exists so you stop rediscovering that.
+
+target extended-remote /dev/ttyBmpGdb
+
+monitor frequency 500000
+monitor swd_scan
+attach 1
+
+# load then run: run resets via AIRCR.SYSRESETREQ so sp and pc are re-fetched
+# from the freshly loaded vector table. plain continue resumes from wherever the
+# core happened to be halted
+define reload
+  load
+  run
+end
