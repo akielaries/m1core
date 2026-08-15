@@ -1,12 +1,12 @@
 `default_nettype none
 
-// soc top level: cpu, debug access port, bus fabric, memories and peripherals
+// mcu top level: cpu, debug access port, bus fabric, memories and peripherals
 //
 // what this is for: attach a black magic probe, have it discover a cortex-m1
 // through the rom table, and let gdb load write firmware into the itcm. once
 // that works end to end on hardware, the core gets built behind it
 
-module m1core_soc #(
+module m1core_mcu #(
   parameter ITCM_WORDS  = 4096,   // 16 kb
   parameter DTCM_WORDS  = 2048,   // 8 kb
   parameter GPIO_WIDTH  = 2,
@@ -23,12 +23,12 @@ module m1core_soc #(
   output wire [3:0]  led,
 
   // firmware controlled pins, also reachable from gdb over swd
-  output wire [GPIO_WIDTH-1:0]gpio,
-
-  // uart0
-  input  wire        uart0_rxd,
-  output wire        uart0_txd,
-  output wire        uart0_irq
+  output wire [GPIO_WIDTH-1:0]gpio
+  // leading commas so this block can be empty without leaving a dangling one
+  // BEGIN GENERATED periph-ports
+  , input  wire        uart0_rxd
+  , output wire        uart0_txd
+  // END GENERATED periph-ports
 );
 
   // power on reset, so the design comes up correctly whether rst_n is wired to
@@ -158,7 +158,7 @@ module m1core_soc #(
   wire [2:0]  pend_prio;
   wire        exc_taken;
   wire [5:0]  exc_taken_num;
-  wire        core_halted, core_bkpt, core_halt_event;
+  wire        core_halted, core_bkpt, core_halt_event, core_lockup;
   wire        dreg_req, dreg_wnr, dreg_ack;
   wire [4:0]  dreg_sel;
   wire [31:0] dreg_wdata, dreg_rdata;
@@ -183,6 +183,7 @@ module m1core_soc #(
     .dbg_halted   (core_halted),
     .dbg_halt_event (core_halt_event),
     .dbg_bkpt_hit (core_bkpt),
+    .dbg_lockup   (core_lockup),
     .pend_valid    (pend_valid),
     .pend_num      (pend_num),
     .pend_prio     (pend_prio),
@@ -327,7 +328,7 @@ module m1core_soc #(
 
   // the apb subsystem is generated from the soc description, so adding a
   // peripheral is a few lines of yaml rather than an edit here. see
-  // rtl/soc/m1core_apb.v and docs/soc-config.md
+  // rtl/mcu/m1core_apb.v and docs/mcu-config.md
   wire [31:0] apb_irq;
 
   m1core_apb u_apb (
@@ -340,12 +341,13 @@ module m1core_soc #(
     .pwdata    (pwdata),
     .prdata    (prdata),
     .pready    (pready),
-    .irq       (apb_irq),
-    .uart0_rxd (uart0_rxd),
-    .uart0_txd (uart0_txd)
+    .irq       (apb_irq)
+    // BEGIN GENERATED apb-pins
+    , .uart0_rxd  (uart0_rxd)
+    , .uart0_txd  (uart0_txd)
+    // END GENERATED apb-pins
   );
 
-  assign uart0_irq = apb_irq[0];
 
   ppb_regs u_ppb (
     .clk          (clk),
@@ -370,6 +372,7 @@ module m1core_soc #(
     .exc_taken     (exc_taken),
     .exc_taken_num (exc_taken_num),
     .core_halted  (core_halted),
+    .core_lockup  (core_lockup),
     .core_halt_event (core_halt_event),
     .core_bkpt    (core_bkpt),
     .dreg_req     (dreg_req),

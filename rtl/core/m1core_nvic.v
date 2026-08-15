@@ -231,9 +231,34 @@ module m1core_nvic (
     end
   end
 
-  assign pend_valid = sel_valid;
-  assign pend_num   = sel_num;
-  assign pend_prio  = sel_prio;
+  // registered rather than combinational.
+  //
+  // the selection above is a 32 way priority comparison, and feeding it
+  // straight out lands it in the cpu's exception decision and from there into
+  // the stack frame address in a single cycle. that showed up as the critical
+  // path of the whole design: nvic/irq_enable -> core/exc_frame.
+  //
+  // one cycle of interrupt latency on a core that takes sixteen bus
+  // transactions to enter an exception is not measurable
+  reg       pend_valid_q;
+  reg [5:0] pend_num_q;
+  reg [2:0] pend_prio_q;
+
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      pend_valid_q <= 1'b0;
+      pend_num_q   <= 6'd0;
+      pend_prio_q  <= 3'd6;
+    end else begin
+      pend_valid_q <= sel_valid;
+      pend_num_q   <= sel_num;
+      pend_prio_q  <= sel_prio;
+    end
+  end
+
+  assign pend_valid = pend_valid_q;
+  assign pend_num   = pend_num_q;
+  assign pend_prio  = pend_prio_q;
 
   // ---------------------------------------------------------------------------
   // reads
@@ -249,7 +274,7 @@ module m1core_nvic (
       12'h200,
       12'h280: rdata = irq_pending;
       12'hd04: rdata = {3'd0, pend_pendsv, 1'b0, pend_systick, 5'd0,
-                        pend_num, 6'd0, 6'd0};
+                        sel_num, 6'd0, 6'd0};
       12'hd1c: rdata = {prio_svc, 30'd0};
       12'hd20: rdata = {prio_systick, 6'd0, prio_pendsv, 22'd0};
       default: begin

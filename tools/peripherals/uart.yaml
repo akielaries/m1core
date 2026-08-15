@@ -1,7 +1,7 @@
 # register layout for the m1core uart
 #
-# this is the inner layer of the two layer split described in docs/soc-config.md:
-# it answers "what is inside a uart", while boards/*/soc.yaml answers "is there a
+# this is the inner layer of the two layer split described in docs/mcu-config.md:
+# it answers "what is inside a uart", while boards/*/mcu.yaml answers "is there a
 # uart and where". long term this file is what Cheby produces; the shape is kept
 # close to Cheby's so swapping it in is mechanical.
 type: uart

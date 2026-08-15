@@ -1,6 +1,6 @@
-# m1core SoC description for the Tang Primer 25K
+# m1core MCU description for the Tang Primer 25K
 #
-# This is the single source of truth for the composition of the SoC: which
+# This is the single source of truth for the composition of the MCU: which
 # peripherals exist, where they live, and which interrupt each one owns. The
 # generator turns it into RTL, the C device header, and the memory map document,
 # so those three can never disagree with each other.
@@ -10,7 +10,7 @@
 # is deliberate — this file answers "is there a UART0 and where is it", Cheby
 # answers "what bits does UART0's CTRL have".
 
-soc:
+mcu:
   name: m1core_tang25k
 
   cpu:

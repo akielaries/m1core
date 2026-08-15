@@ -257,16 +257,16 @@ LOAD linker stubs
  .debug_line    0x00000532       0x56 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
  .debug_line    0x00000588       0x4a /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
 
-.debug_str      0x00000000     0x562c
- .debug_str     0x00000000     0x562c build/main.o
+.debug_str      0x00000000     0x55f9
+ .debug_str     0x00000000     0x55f9 build/main.o
                                0x5768 (size before relaxing)
- .debug_str     0x0000562c        0x0 build/startup.o
-                               0x5579 (size before relaxing)
- .debug_str     0x0000562c        0x0 build/uart.o
+ .debug_str     0x000055f9        0x0 build/startup.o
+                               0x5583 (size before relaxing)
+ .debug_str     0x000055f9        0x0 build/uart.o
                                0x578e (size before relaxing)
- .debug_str     0x0000562c        0x0 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+ .debug_str     0x000055f9        0x0 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
                                  0xc7 (size before relaxing)
- .debug_str     0x0000562c        0x0 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+ .debug_str     0x000055f9        0x0 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
                                  0xc8 (size before relaxing)
 
 .comment        0x00000000       0x28

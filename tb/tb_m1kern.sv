@@ -32,7 +32,7 @@ module tb_m1kern;
   wire       txd;
 
   // sized to match targets/m1core/bsp/startup/linker/m1core.ld
-  m1core_soc #(
+  m1core_mcu #(
     .ITCM_WORDS (8192),
     .DTCM_WORDS (4096),
     .GPIO_WIDTH (2),
@@ -45,8 +45,7 @@ module tb_m1kern;
     .led   (),
     .gpio  (gpio_pins),
     .uart0_rxd (1'b1),
-    .uart0_txd (txd),
-    .uart0_irq ()
+    .uart0_txd (txd)
   );
 
   integer errors = 0;

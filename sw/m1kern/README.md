@@ -22,7 +22,7 @@ LED0 toggles every 250 ms and LED1 every 500 ms, so on a scope you should see
 2 Hz and 1 Hz. Both being correct means SysTick is running at a true 1000 Hz,
 not merely running.
 
-## What m1kern needs from the SoC
+## What m1kern needs from the MCU
 
 | Requirement | Where |
 | --- | --- |

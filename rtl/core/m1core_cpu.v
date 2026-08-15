@@ -37,6 +37,7 @@ module m1core_cpu (
   // pulses when the core stops of its own accord, so the scs can set c_halt
   output wire        dbg_halt_event,
   output reg         dbg_bkpt_hit,
+  output wire        dbg_lockup,
 
   // exception interface to the nvic
   input  wire        pend_valid,
@@ -57,6 +58,11 @@ module m1core_cpu (
   localparam [2:0] SZ_BYTE = 3'd0;
   localparam [2:0] SZ_HALF = 3'd1;
   localparam [2:0] SZ_WORD = 3'd2;
+
+  // armv6-m has no configurable faults, everything escalates to hardfault at a
+  // fixed priority above anything software can set
+  localparam [5:0] EXC_HARDFAULT  = 6'd3;
+  localparam [2:0] PRIO_HARDFAULT = 3'd1;
 
   // state encoding, was a typedef enum before the verilog 2001 down-convert
   localparam [4:0] ST_RST_SP_A = 5'd0;
@@ -112,6 +118,14 @@ module m1core_cpu (
   reg [31:0] exc_return;
   reg [2:0]  exc_new_prio;
 
+  // address of the instruction currently executing. a synchronous fault stacks
+  // this, not the advanced pc, so a handler can see what actually faulted
+  reg [31:0] inst_pc;
+
+  // set when a fault is taken while already at hardfault priority. real
+  // hardware calls this lockup: there is nothing left to escalate to
+  reg        lockup;
+
   wire use_psp = !mode_handler && control_spsel;
   wire [31:0] sp_read = use_psp ? sp_process : sp_main;
 
@@ -147,6 +161,7 @@ module m1core_cpu (
   reg        halt_pending;
 
   assign dbg_halted = (state == ST_HALTED);
+  assign dbg_lockup = lockup;
 
   // states waiting on bus read data. holding these while the slave is not ready
   // is all that wait state support costs the core
@@ -392,6 +407,8 @@ module m1core_cpu (
       exc_num      <= 6'd0;
       exc_return   <= 32'd0;
       exc_new_prio <= 3'd6;
+      inst_pc      <= 32'd0;
+      lockup       <= 1'b0;
       exc_taken    <= 1'b0;
       exc_taken_num <= 6'd0;
       bus_req      <= 1'b0;
@@ -430,6 +447,7 @@ module m1core_cpu (
       ipsr          <= 6'd0;
       cur_prio      <= 3'd6;
       prio_sp       <= 3'd0;
+      lockup        <= 1'b0;
       exc_taken     <= 1'b0;
       // aircr.sysresetreq from the debugger. with no nrst wired this is the
       // only reset path gdb has, and without it a load leaves the core halted
@@ -541,6 +559,7 @@ module m1core_cpu (
             bus_req      <= 1'b0;
             state        <= ST_EXC_PUSH_A;
           end else begin
+            inst_pc   <= pc;
             bus_req   <= 1'b1;
             bus_addr  <= pc;
             bus_write <= 1'b0;
@@ -766,6 +785,16 @@ module m1core_cpu (
                     exc_frame  <= rmv[2] ? sp_process : sp_main;
                     exc_cnt    <= 3'd0;
                     state      <= ST_EXC_POP_A;
+                  end else if (!rmv[0]) begin
+                    // armv6-m has no arm state, so a branch target with the
+                    // thumb bit clear is a fault. silently masking it, which is
+                    // what this used to do, turns a bad function pointer into
+                    // wild execution instead of a diagnosable stop
+                    exc_num      <= EXC_HARDFAULT;
+                    exc_ret_addr <= pc;
+                    exc_new_prio <= PRIO_HARDFAULT;
+                    exc_cnt      <= 3'd0;
+                    state        <= ST_EXC_PUSH_A;
                   end else begin
                     pc <= rmv & 32'hffff_fffe;
                   end
@@ -1027,9 +1056,13 @@ module m1core_cpu (
                 exc_cnt      <= 3'd0;
                 state        <= ST_EXC_PUSH_A;
               end else if (inst[11:8] == 4'he) begin
-                // permanently undefined
-                state <= ST_HALTED;
-                pc    <= pc;
+                // permanently undefined. a real part takes a hardfault here
+                // rather than stopping, so a handler can report it
+                exc_num      <= EXC_HARDFAULT;
+                exc_ret_addr <= pc;
+                exc_new_prio <= PRIO_HARDFAULT;
+                exc_cnt      <= 3'd0;
+                state        <= ST_EXC_PUSH_A;
               end else if (cond_true(inst[11:8])) begin
                 pc <= pc + 32'd4 + {{23{inst[7]}}, inst[7:0], 1'b0};
               end
@@ -1092,10 +1125,24 @@ module m1core_cpu (
 
         // single memory access
         ST_MEM_A: begin
-          bus_req <= 1'b1;
-          if (bus_gnt) begin
-            bus_req <= 1'b0;
-            state   <= ST_MEM_D;
+          // armv6-m has no unaligned access support at all: a word access must
+          // be word aligned and a halfword access halfword aligned. the srams
+          // mask the address rather than complaining, so without this check a
+          // misaligned pointer silently reads the wrong location
+          if ((bus_size == SZ_WORD && bus_addr[1:0] != 2'b00) ||
+              (bus_size == SZ_HALF && bus_addr[0] != 1'b0)) begin
+            bus_req      <= 1'b0;
+            exc_num      <= EXC_HARDFAULT;
+            exc_ret_addr <= inst_pc;
+            exc_new_prio <= PRIO_HARDFAULT;
+            exc_cnt      <= 3'd0;
+            state        <= ST_EXC_PUSH_A;
+          end else begin
+            bus_req <= 1'b1;
+            if (bus_gnt) begin
+              bus_req <= 1'b0;
+              state   <= ST_MEM_D;
+            end
           end
         end
 
@@ -1184,6 +1231,14 @@ module m1core_cpu (
         // frame layout, low address first: r0 r1 r2 r3 r12 lr returnaddr xpsr
         // -------------------------------------------------------------------
         ST_EXC_PUSH_A: begin
+          // a fault while already running at hardfault priority has nowhere to
+          // escalate to. real hardware locks up; stopping here is the same
+          // thing and leaves the debugger something to look at
+          if (exc_num == EXC_HARDFAULT && cur_prio <= PRIO_HARDFAULT) begin
+            lockup  <= 1'b1;
+            bus_req <= 1'b0;
+            state   <= ST_HALTED;
+          end else begin
           bus_req   <= 1'b1;
           bus_write <= 1'b1;
           bus_size  <= SZ_WORD;
@@ -1203,6 +1258,7 @@ module m1core_cpu (
           if (bus_gnt) begin
             bus_req <= 1'b0;
             state   <= ST_EXC_PUSH_D;
+          end
           end
         end
 

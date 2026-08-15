@@ -34,6 +34,8 @@ static volatile uint32_t deep_count;
 
 static uint32_t psp_stack[64];
 static volatile uint32_t dbg_deep, dbg_pend;
+static volatile uint32_t fault_count;
+static volatile uint32_t fault_pc;
 
 static uint32_t errors;
 static uint32_t first_fail;
@@ -75,6 +77,29 @@ void PendSV_Handler(void)
   if (order == 0u) {
     order = 2u;
   }
+}
+
+/*
+ * every fault escalates to hardfault on armv6-m. the handler reads the stacked
+ * pc so a test can check the fault was reported against the right instruction,
+ * then steps the stacked pc past it so execution can resume
+ */
+void HardFault_Handler(void) __attribute__((naked));
+void HardFault_Handler(void)
+{
+  __asm volatile(
+    "mrs  r0, msp        \n"   /* handler runs on msp, frame is at the top */
+    "b    hardfault_c    \n");
+}
+
+void hardfault_c(uint32_t *frame);
+void hardfault_c(uint32_t *frame)
+{
+  fault_count++;
+  fault_pc = frame[6];       /* stacked return address */
+  /* skip the faulting instruction so the test can carry on. every fault it
+     provokes is a 2 byte encoding */
+  frame[6] = frame[6] + 2u;
 }
 
 void SVC_Handler(void)
@@ -193,6 +218,41 @@ int main(void)
     check(psp_read == psp_top);
   }
 
+  /*
+   * --- faults ---
+   *
+   * these are the bugs that used to be silent. an undefined instruction just
+   * stopped the core, an unaligned load quietly read the wrong address because
+   * the sram masks rather than complains, and a branch to an address with the
+   * thumb bit clear had the bit masked away and carried on executing wherever
+   * it landed
+   */
+  {
+    uint32_t before = fault_count;
+
+    /* permanently undefined encoding */
+    __asm volatile("udf #0");
+    check(fault_count == before + 1u);
+
+    /*
+     * unaligned accesses have to be written in asm. given an obviously
+     * unaligned pointer gcc does not emit an unaligned access at all: it
+     * synthesises the word load from two ldrh and the halfword from two ldrb,
+     * because armv6-m cannot do it. a corrupted pointer or a bad cast at
+     * runtime still reaches the hardware, which is what this checks
+     */
+    before = fault_count;
+    __asm volatile("ldr r0, [%0]" :: "r"(0x20000102u) : "r0");
+    check(fault_count == before + 1u);
+
+    before = fault_count;
+    __asm volatile("ldrh r0, [%0]" :: "r"(0x20000101u) : "r0");
+    check(fault_count == before + 1u);
+
+    /* the handler saw a sensible faulting address, inside the image */
+    check(fault_pc != 0u && fault_pc < 0x8000u);
+  }
+
   /* --- ipsr is zero in thread mode --- */
   {
     uint32_t ipsr;
@@ -200,6 +260,7 @@ int main(void)
     check(ipsr == 0u);
   }
 
+  out[7] = fault_count;
   out[5] = fail_mask;
   out[6] = test_id;
   out[3] = dbg_deep;

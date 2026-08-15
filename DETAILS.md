@@ -38,7 +38,7 @@ behind a debugger that already works.
 - [x] **UART working on hardware**: 115200 8N1 out of the APB bridge, verified
       with a terminal. Loop timing independently confirms the 25 MHz clock
 - [x] NVIC and the exception model: SysTick, SVC, PendSV, priorities, MSP/PSP
-- [ ] HardFault and fault escalation
+- [x] HardFault: undefined instruction, unaligned access, bad branch target, lockup
 - [ ] BPU/DWT for hardware breakpoints and watchpoints
 
 ## Layout
@@ -48,7 +48,8 @@ rtl/core/       armv6m_core.v      the cpu, and nothing else
 rtl/debug/      swd_phy, sw_dp     swd framing and the debug port
                 mem_ap             turns DRW accesses into bus cycles
                 ppb_regs           rom table, scs, dwt/bpu id blocks
-rtl/soc/        m1_soc.v           soc top: cpu + debug + fabric + memories
+rtl/mcu/        m1core_mcu.v       mcu top: cpu + debug + fabric + memories
+                m1core_apb.v       GENERATED apb decode and peripherals
                 ahb_arb            two master arbiter, debugger wins
                 ahb_fabric         address decode and read mux
                 ahb_sram           itcm/dtcm
@@ -67,7 +68,7 @@ docs/           id-contract.md, derived from the bmp source
 ```
 
 Split by role rather than by file type. `rtl/core` is the reusable CPU,
-`rtl/debug` is what makes a probe recognise it, `rtl/soc` is the assembly, and
+`rtl/debug` is what makes a probe recognise it, `rtl/mcu` is the assembly, and
 `rtl/periph` is where the system grows.
 
 Adding an application is three lines:
@@ -145,8 +146,15 @@ stacking and unstacking of the 8-word frame, EXC_RETURN via both `bx lr` and
 priority-ordered preemption with PRIMASK masking. MSR/MRS reach MSP, PSP,
 PRIMASK, CONTROL and IPSR, which is what an RTOS context switch needs.
 
-Not implemented yet: HardFault and the fault escalation path. BKPT still halts
-the core, which surfaces in gdb rather than misbehaving silently.
+HardFault is implemented, with three sources: an undefined instruction, an
+unaligned data access, and a branch to an address with the Thumb bit clear.
+A fault taken while already at HardFault priority has nowhere to escalate to, so
+the core locks up and reports `S_LOCKUP` in DHCSR, which is what real hardware
+does. BKPT still halts, which surfaces in gdb rather than misbehaving silently.
+
+All three used to be silent, and the third is the one most likely to bite: a bad
+function pointer had its Thumb bit masked away and execution carried on
+wherever it landed.
 
 Execution starts the way every Cortex-M does: on reset the core reads word 0 of
 the vector table into MSP and word 1 into PC. Bit 0 of the reset vector must be
@@ -237,7 +245,7 @@ DP, MEM-AP, AHB fabric, peripheral. If it then blinks on its own after
 
 See `boards/gw5a25/README.md` for the Tang Primer 25K specifics.
 
-1. Check the pins in `boards/gw5a25/pins.cst`, open `m1_soc.gprj`, build, flash.
+1. Check the pins in `boards/gw5a25/pins.cst`, open `m1core.gprj`, build, flash.
 2. LED1 lights once the probe completes the power-up handshake, LED2 once it
    attaches, LED3 flickers on SWD traffic. If LED1 never lights the probe is not
    getting through the DP at all.

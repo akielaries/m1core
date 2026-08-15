@@ -25,7 +25,7 @@ module tb_core;
 
   wire [1:0] gpio_pins;
 
-  m1core_soc #(
+  m1core_mcu #(
     .ITCM_WORDS (4096),
     .DTCM_WORDS (2048),
     .GPIO_WIDTH (2),
@@ -38,8 +38,7 @@ module tb_core;
     .led   (),
     .gpio  (gpio_pins),
     .uart0_rxd (1'b1),
-    .uart0_txd (),
-    .uart0_irq ()
+    .uart0_txd ()
   );
 
   // the test writes its results to the bottom of dtcm

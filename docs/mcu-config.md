@@ -1,4 +1,4 @@
-# SoC configuration and generation
+# MCU configuration and generation
 
 How m1core gets configured: which peripherals exist, where they live, and which
 interrupt each one owns. This is the scaffolding that makes peripherals cheap to
@@ -6,15 +6,15 @@ add and makes a configurator GUI a thin layer rather than a rewrite.
 
 ## The core argument: generate, don't parameterise
 
-There are two ways to make a SoC configurable.
+There are two ways to make an MCU configurable.
 
-**Parameterise.** One `m1core_soc.v` with `HAS_UART`, `HAS_SPI`, `NUM_GPIO`
+**Parameterise.** One `m1core_mcu.v` with `HAS_UART`, `HAS_SPI`, `NUM_GPIO`
 parameters and `generate` blocks around every instance. This is where these
 projects usually end up, and it rots: the fabric decode becomes a nest of
 conditionals, the address map is implicit in the RTL, adding a peripheral edits
 five files, and the C header drifts from the hardware.
 
-**Generate.** Describe the SoC as data, and emit the RTL. Gowin's own IP
+**Generate.** Describe the MCU as data, and emit the RTL. Gowin's own IP
 configurator works this way, which is the tell: it does not ship one mega-module
 with a hundred parameters, it writes you a wrapper.
 
@@ -40,7 +40,7 @@ unpleasant:
 | Layer | Question it answers | Tool |
 | --- | --- | --- |
 | Registers *within* a peripheral | what bits does UART0's CTRL have | Cheby |
-| Composition *of* the SoC | is there a UART0, at what base, on which IRQ | m1core generator |
+| Composition *of* the MCU | is there a UART0, at what base, on which IRQ | m1core generator |
 
 Cheby is already in use for the ACM register maps and emits both an RTL register
 block and a C header from one YAML. That is exactly the right tool for the inner
@@ -98,10 +98,10 @@ Unused IRQ lines tie low. The NVIC is sized to the highest number in use.
 
 ## Config format
 
-One file describes an SoC instance:
+One file describes an MCU instance:
 
 ```yaml
-soc:
+mcu:
   name: m1core_tang25k
   cpu:
     itcm_kb: 16
@@ -114,8 +114,8 @@ soc:
 
 From that, the generator emits:
 
-- `m1core_soc_gen.v` — the APB decoder, peripheral instances, IRQ vector
-- `m1core_soc.h` — base addresses, IRQ enum, matching the CMSIS layout m1kern
+- `m1core_mcu_gen.v` — the APB decoder, peripheral instances, IRQ vector
+- `m1core_mcu.h` — base addresses, IRQ enum, matching the CMSIS layout m1kern
   expects
 - `memory-map.md` — the same information for humans
 
@@ -125,43 +125,58 @@ never needs to know what is inside a UART.
 ## How the generator gets built safely
 
 The first job of the generator is not to enable a new peripheral. It is to
-**reproduce the SoC that already exists**, byte for byte where practical:
+**reproduce the MCU that already exists**, byte for byte where practical:
 
-1. `boards/gw5a25/soc.yaml` describes the current design, nothing more.
+1. `boards/gw5a25/mcu.yaml` describes the current design, nothing more.
 2. The generator emits the C device header from it. Diff against the
    hand-written `sw/baremetal/bsp/m1core.h`. They must agree.
 3. Then `docs/memory-map.md`, same check.
 4. Then the RTL: the APB decode and peripheral instantiation currently written
-   by hand in `m1core_soc.v`. Diff against what is there now, and the whole
+   by hand in `m1core_mcu.v`. Diff against what is there now, and the whole
    regression must still pass against generated RTL.
 5. Only then add a peripheral that does not exist yet.
 
 **Steps 1 to 4 are done.** `tools/m1core_gen.py` emits the C device header, the
-generated section of `docs/memory-map.md`, and `rtl/soc/m1core_apb.v`. All three
+generated section of `docs/memory-map.md`, and `rtl/mcu/m1core_apb.v`. All three
 are checked by `make checkgen`, which runs as part of the regression, so a hand
 edit to any of them fails locally.
 
 ## What is generated, and what is not
 
-Adding an APB peripheral is four lines of `soc.yaml`. Regenerating produces its
+Adding an APB peripheral is four lines of `mcu.yaml`. Regenerating produces its
 address decode, its slot in the read data and ready mux, its entry in the
 interrupt vector, its instantiation, its base address and IRQ number in the C
 header, and its row in the memory map. Verified by adding a second UART and
 reading the diff.
 
-What it does **not** yet do is route that peripheral's external pins up through
-`m1core_soc.v` and the board top. The generated module grows the ports; wiring
-them to a physical pin is still a manual edit in two files, and iverilog reports
-them as dangling until you do:
+The pins now propagate through `m1core_mcu.v` too, so the only edit left is the
+board layer: a physical ball in `pins.cst` and one line in `boards/*/top.v`.
+That part is irreducible — something has to decide which pin a signal comes out
+of, and only the board knows.
 
-```
-warning: Instantiating module m1core_apb with dangling input port uart1_rxd
+`m1core_mcu.v` is **not** generated wholesale. Of its 440 lines, about fifteen
+depend on the peripheral list: the external pin ports, and the pin connections
+on the APB instance. Those sit between markers and are generated; everything
+else — the CPU, the debug access port, the arbiter, the fabric, the memories,
+the bring-up LEDs — is ordinary hand-written Verilog.
+
+That split is deliberate. Generating the whole file would mean moving four
+hundred lines of perfectly good RTL into Python string literals, where it is
+harder to read, harder to edit, and no more correct. Generate what varies.
+
+The generated port block uses leading commas:
+
+```verilog
+  output wire [GPIO_WIDTH-1:0] gpio
+  // BEGIN GENERATED periph-ports
+  , input  wire        uart0_rxd
+  , output wire        uart0_txd
+  // END GENERATED periph-ports
+);
 ```
 
-That is the honest boundary today. Closing it means generating `m1core_soc.v`
-itself, which is the natural next step and is a bigger change: that file also
-contains the CPU, the debug access port, the fabric and the memories, none of
-which vary with the peripheral list.
+Slightly unusual, but it means a configuration with no APB peripherals at all
+still produces a legal port list rather than a dangling comma.
 
 Reproducing something known-good is a checkable milestone. Generating something
 new is not — if the output is wrong you cannot tell whether the generator or the
@@ -176,7 +191,7 @@ new block is at fault.
 3. **Generator**, once there are two peripherals to compose and the shape of the
    problem is known from real examples rather than guessed at. *Done for the C
    header:* `tools/m1core_gen.py` emits `sw/baremetal/bsp/m1core.h` from
-   `boards/gw5a25/soc.yaml` plus the per-type layouts in `tools/peripherals/`.
+   `boards/gw5a25/mcu.yaml` plus the per-type layouts in `tools/peripherals/`.
    `make checkgen` fails the regression if the two ever disagree.
 4. **Exceptions and NVIC.** The gate to m1kern and to interrupts being useful.
 5. **More peripherals**, which by then are cheap.

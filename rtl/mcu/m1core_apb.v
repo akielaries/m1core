@@ -2,8 +2,8 @@
 
 // m1core apb subsystem
 //
-// GENERATED from boards/gw5a25/soc.yaml by tools/m1core_gen.py. Do not edit.
-// Add a peripheral to the SoC description and regenerate.
+// GENERATED from boards/gw5a25/mcu.yaml by tools/m1core_gen.py. Do not edit.
+// Add a peripheral to the MCU description and regenerate.
 //
 // One AHB slot feeds this no matter how many peripherals hang off it,
 // which is why the fabric decode does not grow as the system does.

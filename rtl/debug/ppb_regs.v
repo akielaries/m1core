@@ -36,6 +36,7 @@ module ppb_regs #(
 
   // core status
   input  wire        core_halted,
+  input  wire        core_lockup,
   input  wire        core_halt_event,
   input  wire        core_bkpt,
 
@@ -148,7 +149,7 @@ module ppb_regs #(
     s_reset_st,   // 25 s_reset_st, sticky, cleared by reading dhcsr
     1'b0,         // 24 s_retire_st
     4'd0,         // 23:20
-    1'b0,         // 19 s_lockup
+    core_lockup,  // 19 s_lockup
     1'b0,         // 18 s_sleep
     core_halted,  // 17 s_halt
     !dreg_busy,   // 16 s_regrdy

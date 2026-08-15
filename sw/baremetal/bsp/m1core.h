@@ -1,7 +1,7 @@
 /*
  * m1core device header
  *
- * GENERATED from boards/gw5a25/soc.yaml by tools/m1core_gen.py. Do not edit.
+ * GENERATED from boards/gw5a25/mcu.yaml by tools/m1core_gen.py. Do not edit.
  * Change the SoC description and regenerate, so the RTL, this header and
  * docs/memory-map.md cannot drift apart.
  *

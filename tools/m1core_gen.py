@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
-"""generate m1core artefacts from an SoC description
+"""generate m1core artefacts from an MCU description
 
-Reads a board's soc.yaml (composition: which peripherals, where, which IRQ) plus
+Reads a board's mcu.yaml (composition: which peripherals, where, which IRQ) plus
 the per-type register layouts in tools/peripherals/ (what is inside each block),
 and emits the C device header.
 
-The split is deliberate and described in docs/soc-config.md. This tool never
+The split is deliberate and described in docs/mcu-config.md. This tool never
 needs to know what bits a UART's CTRL register has; it only needs to know a UART
 exists at an address.
 
 Usage:
-    m1core_gen.py <soc.yaml> --header <out.h>
-    m1core_gen.py <soc.yaml> --header <out.h> --check   # diff, do not write
+    m1core_gen.py <mcu.yaml> --header <out.h>
+    m1core_gen.py <mcu.yaml> --header <out.h> --check   # diff, do not write
 """
 
 import argparse
@@ -39,9 +39,9 @@ PERIPH_DIR = os.path.join(HERE, "peripherals")
 def load_soc(path):
     with open(path) as f:
         doc = yaml.safe_load(f)
-    if "soc" not in doc:
-        raise ValueError(f"{path}: no top level 'soc' key")
-    return doc["soc"]
+    if "mcu" not in doc:
+        raise ValueError(f"{path}: no top level 'mcu' key")
+    return doc["mcu"]
 
 
 def load_periph_types(soc):
@@ -97,7 +97,7 @@ def validate(soc, types):
                 f"{a_name} [{a_lo:#x},{a_hi:#x}) overlaps {b_name} [{b_lo:#x},{b_hi:#x})")
 
     if not soc.get("clock", {}).get("hz"):
-        errors.append("soc.clock.hz is required: software cannot read it back")
+        errors.append("mcu.clock.hz is required: software cannot read it back")
 
     return errors
 
@@ -224,7 +224,7 @@ def gen_apb_rtl(soc, types, source):
     w("// m1core apb subsystem")
     w("//")
     w(f"// GENERATED from {source} by tools/m1core_gen.py. Do not edit.")
-    w("// Add a peripheral to the SoC description and regenerate.")
+    w("// Add a peripheral to the MCU description and regenerate.")
     w("//")
     w("// One AHB slot feeds this no matter how many peripherals hang off it,")
     w("// which is why the fabric decode does not grow as the system does.")
@@ -384,6 +384,52 @@ def gen_memmap(soc, types, source):
     return "\n".join(o)
 
 
+def splice_region(text, name, block):
+    """replace one named region between markers, leaving everything else alone
+
+    used for files that are mostly hand written with a few generated parts. the
+    alternative, generating the whole file, would mean moving four hundred lines
+    of perfectly good verilog into python string literals
+    """
+    begin = f"BEGIN GENERATED {name}"
+    end = f"END GENERATED {name}"
+    if begin not in text or end not in text:
+        raise ValueError(f"missing markers for region '{name}'")
+    head, rest = text.split(begin, 1)
+    _, tail = rest.split(end, 1)
+    # reuse the indentation of the begin marker so the end marker lines up,
+    # whatever nesting the region sits at
+    indent = head[head.rfind("\n") + 1:]
+    return head + begin + "\n" + block + indent + end + tail
+
+
+def gen_mcu_regions(soc, types, source):
+    """the two parts of m1core_mcu.v that depend on the peripheral list:
+    the external pin ports, and the pin connections on the apb instance"""
+    apb = [p for p in soc.get("peripherals", []) if p.get("bus") == "apb"]
+
+    ports = []
+    conns = []
+    for p in apb:
+        for pin in types[p["type"]].get("pins", []):
+            d = "input  wire" if pin["dir"] == "input" else "output wire"
+            sig = f"{p['name']}_{pin['name']}"
+            ports.append(f"  , {d}        {sig}")
+            conns.append(f"    , .{sig:<10} ({sig})")
+
+    return {
+        "periph-ports": ("\n".join(ports) + "\n") if ports else "",
+        "apb-pins": ("\n".join(conns) + "\n") if conns else "",
+    }
+
+
+def splice_mcu(path, soc, types, source):
+    text = open(path).read()
+    for name, block in gen_mcu_regions(soc, types, source).items():
+        text = splice_region(text, name, block)
+    return text
+
+
 def splice_memmap(path, block):
     text = open(path).read()
     if BEGIN_MARK not in text or END_MARK not in text:
@@ -399,6 +445,7 @@ def main():
     ap.add_argument("--header")
     ap.add_argument("--memmap")
     ap.add_argument("--apb-rtl")
+    ap.add_argument("--mcu-rtl")
     ap.add_argument("--check", action="store_true",
                     help="report whether the file on disk is up to date, write nothing")
     args = ap.parse_args()
@@ -425,6 +472,8 @@ def main():
                         splice_memmap(args.memmap, gen_memmap(soc, types, src))))
     if args.apb_rtl:
         outputs.append((args.apb_rtl, gen_apb_rtl(soc, types, src)))
+    if args.mcu_rtl:
+        outputs.append((args.mcu_rtl, splice_mcu(args.mcu_rtl, soc, types, src)))
     if not outputs:
         print("nothing to do: pass --header, --memmap and/or --apb-rtl", file=sys.stderr)
         return 1
@@ -446,7 +495,7 @@ def main():
                     print("  " + line)
                 failed = True
             else:
-                print(f"ok   {rel} matches the soc description")
+                print(f"ok   {rel} matches the mcu description")
         else:
             with open(path, "w") as f:
                 f.write(text)

@@ -7,7 +7,7 @@ nothing and means existing software works unchanged. `GOWIN_M1_uart.c` from
 m1kern's BSP drives our UART as-is.
 
 <!-- BEGIN GENERATED, do not edit: tools/m1core_gen.py --memmap -->
-*Generated from boards/gw5a25/soc.yaml. Everything below the END marker is hand written.*
+*Generated from boards/gw5a25/mcu.yaml. Everything below the END marker is hand written.*
 
 This build is `m1core_tang25k`, 32 KB ITCM and 16 KB DTCM, clocked at 25 MHz.
 

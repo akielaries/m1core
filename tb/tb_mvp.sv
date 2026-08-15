@@ -34,7 +34,7 @@ module tb_mvp;
 
   // itcm is preloaded so the core is genuinely running while the debugger does
   // its discovery walk, which exercises the bus arbiter for free
-  m1core_soc #(
+  m1core_mcu #(
     .ITCM_WORDS (4096),
     .DTCM_WORDS (2048),
     .GPIO_WIDTH (2),
@@ -47,8 +47,7 @@ module tb_mvp;
     .led   (),
     .gpio  (gpio_pins),
     .uart0_rxd (1'b1),
-    .uart0_txd (),
-    .uart0_irq ()
+    .uart0_txd ()
   );
 
   `include "swd_host.svh"

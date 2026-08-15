@@ -7,16 +7,16 @@ DAP_RTL := $(ROOT)/rtl/debug/swd_phy.v $(ROOT)/rtl/debug/sw_dp.v
 MVP_RTL := $(DAP_RTL) \
            $(ROOT)/rtl/debug/mem_ap.v \
            $(ROOT)/rtl/debug/ppb_regs.v \
-           $(ROOT)/rtl/soc/ahb_fabric.v \
-           $(ROOT)/rtl/soc/ahb_sram.v \
+           $(ROOT)/rtl/mcu/ahb_fabric.v \
+           $(ROOT)/rtl/mcu/ahb_sram.v \
            $(ROOT)/rtl/periph/ahb_gpio.v \
            $(ROOT)/rtl/periph/apb_uart.v \
-           $(ROOT)/rtl/soc/ahb_apb_bridge.v \
-           $(ROOT)/rtl/soc/m1core_apb.v \
-           $(ROOT)/rtl/soc/ahb_arb.v \
+           $(ROOT)/rtl/mcu/ahb_apb_bridge.v \
+           $(ROOT)/rtl/mcu/m1core_apb.v \
+           $(ROOT)/rtl/mcu/ahb_arb.v \
            $(ROOT)/rtl/core/m1core_cpu.v \
            $(ROOT)/rtl/core/m1core_nvic.v \
-           $(ROOT)/rtl/soc/m1core_soc.v
+           $(ROOT)/rtl/mcu/m1core_mcu.v
 
 IFLAGS := -g2012 -Wall -I$(ROOT)/tb
 
@@ -30,12 +30,13 @@ checkproj:
 	@python3 $(ROOT)/tools/check_project.py
 
 # the device header is generated from the soc description. this catches a hand
-# edit to the header, or a change to the soc.yaml that was never regenerated
+# edit to the header, or a change to the mcu.yaml that was never regenerated
 checkgen:
-	@python3 $(ROOT)/tools/m1core_gen.py $(ROOT)/boards/gw5a25/soc.yaml \
+	@python3 $(ROOT)/tools/m1core_gen.py $(ROOT)/boards/gw5a25/mcu.yaml \
 	    --header $(ROOT)/sw/baremetal/bsp/m1core.h \
 	    --memmap $(ROOT)/docs/memory-map.md \
-	    --apb-rtl $(ROOT)/rtl/soc/m1core_apb.v --check
+	    --apb-rtl $(ROOT)/rtl/mcu/m1core_apb.v \
+	    --mcu-rtl $(ROOT)/rtl/mcu/m1core_mcu.v --check
 
 dap: $(BUILD)/tb_dap
 	$(VVP) $<
@@ -101,7 +102,7 @@ $(BUILD)/tb_blink: $(MVP_RTL) $(ROOT)/tb/tb_blink.sv | $(BUILD)
 $(BUILD)/tb_hello: $(MVP_RTL) $(ROOT)/tb/tb_hello.sv | $(BUILD)
 	$(IVERILOG) $(IFLAGS) -o $@ $(MVP_RTL) $(ROOT)/tb/tb_hello.sv
 
-$(BUILD)/tb_uart: $(ROOT)/rtl/soc/ahb_apb_bridge.v $(ROOT)/rtl/periph/apb_uart.v $(ROOT)/tb/tb_uart.sv | $(BUILD)
+$(BUILD)/tb_uart: $(ROOT)/rtl/mcu/ahb_apb_bridge.v $(ROOT)/rtl/periph/apb_uart.v $(ROOT)/tb/tb_uart.sv | $(BUILD)
 	$(IVERILOG) $(IFLAGS) -o $@ $^
 
 $(BUILD):

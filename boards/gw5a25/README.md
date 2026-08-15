@@ -6,7 +6,7 @@ is a new directory and nothing else.
 
 ## Build
 
-Open `m1_soc.gprj` in the Gowin IDE, synthesise, place and route, program.
+Open `m1core.gprj` in the Gowin IDE, synthesise, place and route, program.
 
 Firmware arrives over SWD via `gdb load`, so nothing has to be built first.
 
@@ -19,8 +19,8 @@ error**, not a soft fallback, and the directory GowinSynthesis runs from is not
 worth guessing at. To enable it:
 
 ```
-cd ../../fw && make
-cp build/blink.hex ../boards/gw5a25/
+cd ../../sw/baremetal && make
+cp apps/blink/build/blink.hex ../../boards/gw5a25/
 ```
 
 then set `ITCM_INIT` to `"blink.hex"` in `top.v`, and adjust the path if
@@ -41,7 +41,7 @@ Gowin's SystemVerilog frontend is partial, and a partial frontend that
 So the design was down-converted: `logic` became `reg`/`wire`, `always_ff` and
 `always_comb` became `always @(posedge ...)` and `always @(*)`, the state
 `typedef enum`s became `localparam` blocks, and typed parameters lost their type
-keywords. The 68-check regression suite passed unchanged before and after, which
+keywords. The regression suite passed unchanged before and after, which
 is what made a mechanical refactor of this size safe to do at all.
 
 The RTL now parses under `iverilog -g2001` in strict Verilog-2001 mode and under
@@ -49,8 +49,8 @@ yosys `read_verilog` without `-sv`. Keep it that way — if you add RTL, check i
 with:
 
 ```
-iverilog -g2001 -Wall -t null rtl/dap/*.v rtl/debug/*.v rtl/soc/*.v \
-    rtl/core/*.v rtl/m1_mvp_top.v boards/gw5a25/top.v
+iverilog -g2001 -Wall -t null rtl/core/*.v rtl/debug/*.v rtl/periph/*.v \
+    rtl/mcu/*.v boards/gw5a25/top.v
 ```
 
 The testbenches under `tb/` are still SystemVerilog. That is fine and
@@ -70,7 +70,7 @@ ERROR (PR2017) : 'LED[1]' cannot be placed according to constraint,
 ```
 
 This setting does **not** live in `pins.cst`. It is project configuration, in
-`impl/m1_soc_process_config.json`, or in the IDE under
+`impl/m1core_process_config.json`, or in the IDE under
 **Project > Configuration > Place & Route > Dual-Purpose Pin**.
 
 Required here, matching the ACM gw5a25 build that places successfully on this
@@ -82,6 +82,10 @@ same board:
 | SSPI | true | E2 is shared CPU/SSPI |
 | I2C | true | frees B2 for LED[1] |
 | **JTAG** | **false** | leave it alone |
+
+Note the filename follows the project name, so renaming the `.gprj` orphans
+these settings and placement fails with PR2017 again until they are set on the
+new file.
 
 **Never enable JTAG as regular IO on a Gowin part.** It takes the programming
 pins away and you lose the ability to reprogram the board.
@@ -124,13 +128,13 @@ turnaround, and the framer relies on reading that as a one to swallow the
 trailing turnaround clock.
 
 The reset polarity is inherited from this board's convention, active high with a
-pull-down so it boots without the key held. `top.v` inverts it for the SoC, which
+pull-down so it boots without the key held. `top.v` inverts it for the MCU, which
 takes an active-low reset. If the board comes up stuck in reset, the key idles
 high and that inversion needs flipping.
 
 ## Clock: 50 MHz divided to 25
 
-`top.v` divides the 50 MHz oscillator by two and runs the SoC at 25 MHz.
+`top.v` divides the 50 MHz oscillator by two and runs the MCU at 25 MHz.
 
 The first build met timing at the full 50 MHz, but with **0.023 ns of slack**,
 and all 50 reported paths sat under 0.5 ns. The critical path runs from an
@@ -153,10 +157,16 @@ oversamples it and detects edges, so it never reaches a register clock pin and
 there is no second clock domain. Declaring one would invent a domain that does
 not exist and generate meaningless cross-domain paths.
 
-It is also kept to a single `create_clock` line. An earlier version added
+It declares `clk_sys`, the HCLK/2 the MCU actually runs on, as a generated
+clock. Without that the tool has no description of it and invents a
+relationship: a build reported `required = 12.9 ns` on a path between two
+`clk_sys` registers, which is neither the 20 ns nor the 40 ns period and is not
+a number worth acting on.
+
+It is otherwise kept minimal. An earlier version added
 `set_false_path` constraints and the tool emitted a 337-byte, empty
-`m1_soc.tr.html`, which is what a rejected SDC looks like. **After a build, check
-that `impl/pnr/m1_soc.tr.html` actually has content.** If it is near-empty the
+`m1core.tr.html`, which is what a rejected SDC looks like. **After a build, check
+that `impl/pnr/m1core.tr.html` actually has content.** If it is near-empty the
 timing constraints are not being applied and any slack number is meaningless.
 
 ## What to expect
