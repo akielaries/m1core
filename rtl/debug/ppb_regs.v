@@ -39,6 +39,15 @@ module ppb_regs #(
   input  wire        core_halt_event,
   input  wire        core_bkpt,
 
+  // interrupt sources and the cpu's exception interface, both just pass
+  // through to the nvic which lives inside this page
+  input  wire [31:0] irq_in,
+  output wire        pend_valid,
+  output wire [5:0]  pend_num,
+  output wire [2:0]  pend_prio,
+  input  wire        exc_taken,
+  input  wire [5:0]  exc_taken_num,
+
   // core register access, driven by dcrsr/dcrdr
   output reg         dreg_req,
   output reg         dreg_wnr,
@@ -87,6 +96,35 @@ module ppb_regs #(
 
   wire [19:0] comp_base = {a_addr[19:12], 12'd0};
   wire [11:0] off       = a_addr[11:0];
+
+  // offsets inside the scs page that belong to the nvic rather than to debug:
+  // systick, the nvic enable/pending/priority banks, icsr and shpr2/3
+  wire nvic_range = (off[11:4] == 8'h01)          ||
+                    (off[11:8] == 4'h1)           ||
+                    (off[11:8] == 4'h2)           ||
+                    (off[11:5] == 7'b0100000)     ||
+                    (off == 12'hd04)              ||
+                    (off == 12'hd1c)              ||
+                    (off == 12'hd20);
+
+  wire        nvic_sel = a_valid && (comp_base == BASE_SCS) && nvic_range;
+  wire [31:0] nvic_rdata;
+
+  m1core_nvic u_nvic (
+    .clk           (clk),
+    .rst_n         (rst_n),
+    .sel           (nvic_sel),
+    .offset        (off),
+    .write         (a_write),
+    .wdata         (hwdata),
+    .rdata         (nvic_rdata),
+    .irq_in        (irq_in),
+    .pend_valid    (pend_valid),
+    .pend_num      (pend_num),
+    .pend_prio     (pend_prio),
+    .exc_taken     (exc_taken),
+    .exc_taken_num (exc_taken_num)
+  );
 
   // debug registers
   reg        c_debugen, c_halt, c_step, c_maskints;
@@ -164,7 +202,9 @@ module ppb_regs #(
         endcase
       end
 
-      BASE_SCS: begin
+      BASE_SCS: if (nvic_range) begin
+        hrdata = nvic_rdata;
+      end else begin
         case (off)
           SCS_CPUID: hrdata = CPUID_VALUE;
           SCS_AIRCR: hrdata = {16'hfa05, aircr[15:0]};

@@ -153,6 +153,11 @@ module m1core_soc #(
 
   wire        dbg_halt_req, dbg_step_req, dbg_en;
   wire        sys_reset_req, vc_corereset;
+  wire        pend_valid;
+  wire [5:0]  pend_num;
+  wire [2:0]  pend_prio;
+  wire        exc_taken;
+  wire [5:0]  exc_taken_num;
   wire        core_halted, core_bkpt, core_halt_event;
   wire        dreg_req, dreg_wnr, dreg_ack;
   wire [4:0]  dreg_sel;
@@ -178,6 +183,11 @@ module m1core_soc #(
     .dbg_halted   (core_halted),
     .dbg_halt_event (core_halt_event),
     .dbg_bkpt_hit (core_bkpt),
+    .pend_valid    (pend_valid),
+    .pend_num      (pend_num),
+    .pend_prio     (pend_prio),
+    .exc_taken     (exc_taken),
+    .exc_taken_num (exc_taken_num),
     .dreg_req     (dreg_req),
     .dreg_wnr     (dreg_wnr),
     .dreg_sel     (dreg_sel),
@@ -290,8 +300,10 @@ module m1core_soc #(
   );
 
   // ---- apb side: one ahb slot, as many peripherals as we like ----
-  wire        psel, penable, pwrite, pready;
-  wire [31:0] paddr, pwdata, prdata;
+  wire        psel, penable, pwrite;
+  wire [31:0] paddr, pwdata;
+  wire        pready;
+  wire [31:0] prdata;
 
   ahb_apb_bridge u_apb_bridge (
     .clk       (clk),
@@ -313,30 +325,27 @@ module m1core_soc #(
     .pready    (pready)
   );
 
-  // apb1 decode. one peripheral so far, at the gowin/cmsdk offset for uart0.
-  // this decode is what the soc generator will emit once there are several
-  wire sel_uart0 = (paddr[27:12] == 16'h0004);
+  // the apb subsystem is generated from the soc description, so adding a
+  // peripheral is a few lines of yaml rather than an edit here. see
+  // rtl/soc/m1core_apb.v and docs/soc-config.md
+  wire [31:0] apb_irq;
 
-  wire [31:0] prdata_uart0;
-  wire        pready_uart0;
-
-  assign prdata = sel_uart0 ? prdata_uart0 : 32'd0;
-  assign pready = sel_uart0 ? pready_uart0 : 1'b1;
-
-  apb_uart u_uart0 (
-    .clk     (clk),
-    .rst_n   (rst_n_i),
-    .psel    (psel && sel_uart0),
-    .penable (penable),
-    .pwrite  (pwrite),
-    .paddr   (paddr),
-    .pwdata  (pwdata),
-    .prdata  (prdata_uart0),
-    .pready  (pready_uart0),
-    .rxd     (uart0_rxd),
-    .txd     (uart0_txd),
-    .irq     (uart0_irq)
+  m1core_apb u_apb (
+    .clk       (clk),
+    .rst_n     (rst_n_i),
+    .psel      (psel),
+    .penable   (penable),
+    .pwrite    (pwrite),
+    .paddr     (paddr),
+    .pwdata    (pwdata),
+    .prdata    (prdata),
+    .pready    (pready),
+    .irq       (apb_irq),
+    .uart0_rxd (uart0_rxd),
+    .uart0_txd (uart0_txd)
   );
+
+  assign uart0_irq = apb_irq[0];
 
   ppb_regs u_ppb (
     .clk          (clk),
@@ -354,6 +363,12 @@ module m1core_soc #(
     .demcr_out    (demcr),
     .sys_reset_req (sys_reset_req),
     .vc_corereset  (vc_corereset),
+    .irq_in        (apb_irq),
+    .pend_valid    (pend_valid),
+    .pend_num      (pend_num),
+    .pend_prio     (pend_prio),
+    .exc_taken     (exc_taken),
+    .exc_taken_num (exc_taken_num),
     .core_halted  (core_halted),
     .core_halt_event (core_halt_event),
     .core_bkpt    (core_bkpt),

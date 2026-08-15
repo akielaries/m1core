@@ -24,7 +24,7 @@ module tb_blink;
     .ITCM_WORDS (4096),
     .DTCM_WORDS (2048),
     .GPIO_WIDTH (2),
-    .ITCM_INIT  ("../sw/apps/blink/build-sim/blink_sim.hex")
+    .ITCM_INIT  ("../sw/baremetal/apps/blink/build-sim/blink_sim.hex")
   ) dut (
     .clk   (clk),
     .rst_n (rst_n),

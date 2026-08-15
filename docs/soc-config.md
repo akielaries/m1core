@@ -122,6 +122,51 @@ From that, the generator emits:
 Peripheral register definitions stay in Cheby YAML per block, so the generator
 never needs to know what is inside a UART.
 
+## How the generator gets built safely
+
+The first job of the generator is not to enable a new peripheral. It is to
+**reproduce the SoC that already exists**, byte for byte where practical:
+
+1. `boards/gw5a25/soc.yaml` describes the current design, nothing more.
+2. The generator emits the C device header from it. Diff against the
+   hand-written `sw/baremetal/bsp/m1core.h`. They must agree.
+3. Then `docs/memory-map.md`, same check.
+4. Then the RTL: the APB decode and peripheral instantiation currently written
+   by hand in `m1core_soc.v`. Diff against what is there now, and the whole
+   regression must still pass against generated RTL.
+5. Only then add a peripheral that does not exist yet.
+
+**Steps 1 to 4 are done.** `tools/m1core_gen.py` emits the C device header, the
+generated section of `docs/memory-map.md`, and `rtl/soc/m1core_apb.v`. All three
+are checked by `make checkgen`, which runs as part of the regression, so a hand
+edit to any of them fails locally.
+
+## What is generated, and what is not
+
+Adding an APB peripheral is four lines of `soc.yaml`. Regenerating produces its
+address decode, its slot in the read data and ready mux, its entry in the
+interrupt vector, its instantiation, its base address and IRQ number in the C
+header, and its row in the memory map. Verified by adding a second UART and
+reading the diff.
+
+What it does **not** yet do is route that peripheral's external pins up through
+`m1core_soc.v` and the board top. The generated module grows the ports; wiring
+them to a physical pin is still a manual edit in two files, and iverilog reports
+them as dangling until you do:
+
+```
+warning: Instantiating module m1core_apb with dangling input port uart1_rxd
+```
+
+That is the honest boundary today. Closing it means generating `m1core_soc.v`
+itself, which is the natural next step and is a bigger change: that file also
+contains the CPU, the debug access port, the fabric and the memories, none of
+which vary with the peripheral list.
+
+Reproducing something known-good is a checkable milestone. Generating something
+new is not — if the output is wrong you cannot tell whether the generator or the
+new block is at fault.
+
 ## Order of work
 
 1. **AHB-to-APB bridge**, and a written peripheral contract. Structural, and
@@ -129,10 +174,28 @@ never needs to know what is inside a UART.
 2. **UART on APB.** The first real peripheral, and the thing that proves the
    contract end to end. Also the most immediately useful: printf beats an LED.
 3. **Generator**, once there are two peripherals to compose and the shape of the
-   problem is known from real examples rather than guessed at.
+   problem is known from real examples rather than guessed at. *Done for the C
+   header:* `tools/m1core_gen.py` emits `sw/baremetal/bsp/m1core.h` from
+   `boards/gw5a25/soc.yaml` plus the per-type layouts in `tools/peripherals/`.
+   `make checkgen` fails the regression if the two ever disagree.
 4. **Exceptions and NVIC.** The gate to m1kern and to interrupts being useful.
 5. **More peripherals**, which by then are cheap.
 6. **GUI**, a form over the YAML.
+
+## GUI technology
+
+Python with Qt (PySide6), when the time comes.
+
+The generator is Python, so the GUI can import it directly rather than shelling
+out and parsing text, and there is one language to maintain. It matches the
+tooling already in use here — Cheby, the SI suite, `tools/*.py` — and Gowin's own
+IDE is Qt, so it will not feel foreign next to it.
+
+The rule that keeps it cheap: **the GUI never contains logic.** It edits YAML and
+calls the generator. Every validation rule (overlapping address ranges, duplicate
+IRQ numbers, a peripheral on a bus that does not exist) belongs in the generator
+where the CLI gets it too, and where it can be tested without clicking anything.
+A GUI that knows things the CLI does not is how these tools rot.
 
 Steps 1 and 2 before the generator is deliberate: writing a generator against one
 hypothetical peripheral produces the wrong abstraction. Two real ones is enough

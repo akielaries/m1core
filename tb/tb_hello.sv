@@ -29,7 +29,7 @@ module tb_hello;
     .ITCM_WORDS (4096),
     .DTCM_WORDS (2048),
     .GPIO_WIDTH (2),
-    .ITCM_INIT  ("../sw/apps/hello/build-sim/hello_sim.hex")
+    .ITCM_INIT  ("../sw/baremetal/apps/hello/build-sim/hello_sim.hex")
   ) dut (
     .clk   (clk),
     .rst_n (rst_n),
@@ -43,6 +43,24 @@ module tb_hello;
   );
 
   integer errors = 0;
+
+  // the two pins are driven in opposite phase, so count edges and check they
+  // never sit in the same state
+  integer edges = 0;
+  integer same_phase = 0;
+  logic   prev0 = 1'b0;
+
+  always @(posedge clk) begin
+    if (rst_n) begin
+      if (gpio_pins[0] !== prev0) begin
+        edges = edges + 1;
+        prev0 = gpio_pins[0];
+      end
+      if (edges > 0 && gpio_pins[0] === gpio_pins[1]) begin
+        same_phase = same_phase + 1;
+      end
+    end
+  end
 
   // ---- decode frames off the pin, independently of the transmitter ----
   string  captured;
@@ -85,7 +103,7 @@ module tb_hello;
     rst_n = 1'b1;
 
     // enough characters to get the banner plus a couple of tick lines
-    wait (nchars >= 40);
+    wait (nchars >= 40 && edges >= 2);
     repeat (100) @(posedge clk);
 
     $display("uart output: %s", captured);
@@ -106,11 +124,18 @@ module tb_hello;
       $display("ok   tick line received");
     end
 
-    if (gpio_pins === 2'b00) begin
-      $display("FAIL gpio never driven");
+    if (edges < 2) begin
+      $display("FAIL gpio never toggled, only %0d edge(s)", edges);
       errors = errors + 1;
     end else begin
-      $display("ok   gpio driven by firmware   %b", gpio_pins);
+      $display("ok   gpio toggling             %0d edges", edges);
+    end
+
+    if (same_phase != 0) begin
+      $display("FAIL gpio pins were in phase for %0d cycles", same_phase);
+      errors = errors + 1;
+    end else begin
+      $display("ok   gpio pins in opposite phase");
     end
 
     $display("");

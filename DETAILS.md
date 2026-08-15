@@ -35,7 +35,10 @@ behind a debugger that already works.
 - [x] **MVP milestone complete**: attach over SWD, `load`, and the core runs the
       blink firmware on a Tang Primer 25K. Debug, memory access, reset and
       execution all working on hardware
-- [ ] NVIC and the exception model, so interrupts and SVC work
+- [x] **UART working on hardware**: 115200 8N1 out of the APB bridge, verified
+      with a terminal. Loop timing independently confirms the 25 MHz clock
+- [x] NVIC and the exception model: SysTick, SVC, PendSV, priorities, MSP/PSP
+- [ ] HardFault and fault escalation
 - [ ] BPU/DWT for hardware breakpoints and watchpoints
 
 ## Layout
@@ -136,8 +139,14 @@ loads and stores at all widths with sign extension, LDR literal, ADR, ADD/SUB
 SP, sign and zero extends, byte reverses, PUSH/POP, STMIA/LDMIA, conditional and
 unconditional branches, BL, CPS, and the hints.
 
-Not implemented yet: exceptions, the NVIC, and SVC. BKPT and SVC currently halt
-the core, which at least surfaces in gdb rather than silently misbehaving.
+Exceptions and the NVIC are implemented: banked MSP/PSP, CONTROL.SPSEL, IPSR,
+stacking and unstacking of the 8-word frame, EXC_RETURN via both `bx lr` and
+`pop {pc}`, SVC taken synchronously, PendSV and SysTick through the NVIC, and
+priority-ordered preemption with PRIMASK masking. MSR/MRS reach MSP, PSP,
+PRIMASK, CONTROL and IPSR, which is what an RTOS context switch needs.
+
+Not implemented yet: HardFault and the fault escalation path. BKPT still halts
+the core, which surfaces in gdb rather than misbehaving silently.
 
 Execution starts the way every Cortex-M does: on reset the core reads word 0 of
 the vector table into MSP and word 1 into PC. Bit 0 of the reset vector must be

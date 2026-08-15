@@ -6,6 +6,20 @@ reasoning as the CoreSight ID contract: matching an existing convention costs
 nothing and means existing software works unchanged. `GOWIN_M1_uart.c` from
 m1kern's BSP drives our UART as-is.
 
+<!-- BEGIN GENERATED, do not edit: tools/m1core_gen.py --memmap -->
+*Generated from boards/gw5a25/soc.yaml. Everything below the END marker is hand written.*
+
+This build is `m1core_tang25k`, 32 KB ITCM and 16 KB DTCM, clocked at 25 MHz.
+
+| Address | Block | Bus | IRQ |
+| --- | --- | --- | --- |
+| 0x0000_0000 | ITCM | AHB | - |
+| 0x2000_0000 | DTCM | AHB | - |
+| 0x4000_0000 | GPIO0 | AHB | 4 |
+| 0x5000_4000 | UART0 | APB | 0 |
+| 0xE000_0000 | PPB | AHB | - |
+<!-- END GENERATED -->
+
 ## Regions
 
 | Base | Region | Bus | Notes |
@@ -73,8 +87,12 @@ Numbering follows Gowin's eMPU M1 so m1kern's target layer ports unchanged.
 | 11 | DualTimer |
 | 12 | TRNG |
 
-Unused lines tie low. Nothing is wired yet: the NVIC does not exist, so UART0
-currently drives an interrupt output that goes nowhere.
+Unused lines tie low. UART0's interrupt is wired to IRQ 0.
+
+The NVIC lives in `rtl/core/m1core_nvic.v` inside the PPB page and covers
+SysTick (0xE000E010), the enable/pending/priority banks (0xE000E100 onward),
+ICSR and SHPR2/3. Two priority bits, as ARMv6-M specifies, held in the top of
+each 8-bit field.
 
 ## Not matching Gowin
 

@@ -1,0 +1,19 @@
+# register layout for the m1core gpio
+#
+# note this is NOT cmsdk shaped (cmsdk uses DATA/DATAOUT/OUTENSET/OUTENCLR).
+# realigning it would break the blink demo currently running on hardware, so it
+# is a deliberate separate change. see docs/memory-map.md
+type: gpio
+struct: gpio_t
+doc: simple gpio, data/dir with atomic set and clear
+size: 0x1000
+module: ahb_gpio
+
+pins:
+  - { name: gpio_o, dir: output, width: from_config }
+
+registers:
+  - { name: DATA, offset: 0x00, doc: "current output value" }
+  - { name: DIR,  offset: 0x04, doc: "1 = drive the pin" }
+  - { name: SET,  offset: 0x08, doc: "write ones to set" }
+  - { name: CLR,  offset: 0x0c, doc: "write ones to clear" }

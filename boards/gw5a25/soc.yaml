@@ -1,0 +1,68 @@
+# m1core SoC description for the Tang Primer 25K
+#
+# This is the single source of truth for the composition of the SoC: which
+# peripherals exist, where they live, and which interrupt each one owns. The
+# generator turns it into RTL, the C device header, and the memory map document,
+# so those three can never disagree with each other.
+#
+# What is NOT here: the registers inside a peripheral. Those live in per-block
+# Cheby YAML, the same tooling already used for the ACM register maps. The split
+# is deliberate — this file answers "is there a UART0 and where is it", Cheby
+# answers "what bits does UART0's CTRL have".
+
+soc:
+  name: m1core_tang25k
+
+  cpu:
+    # m1core is ARMv6-M. these are the only knobs that change the hardware
+    itcm_kb: 32
+    dtcm_kb: 16
+    # must match the linker scripts in sw/baremetal/bsp and m1kern's m1core
+    # target, or an oversized stack silently wraps inside ahb_sram
+
+  clock:
+    # the fabric clock the design is synthesised with. software cannot read this
+    # back (there is no PLL to interrogate) so it is emitted into the C header
+    # as a constant and must match what boards/gw5a25/top.v produces
+    hz: 25000000
+    source: "50 MHz oscillator divided by two in top.v"
+
+  debug:
+    # SWD only. JTAG is not implemented and is not planned: the whole point of
+    # the ID contract work was to be found by a Black Magic Probe over SWD
+    transport: swd
+    # see docs/id-contract.md, every value derived from the BMP source
+    dpidr: 0x0C101477
+    cpuid: 0x410CC210
+
+  # ---------------------------------------------------------------------------
+  # Peripherals
+  #
+  # bus: ahb   fast, on the main fabric, costs a decode slot
+  #      apb   behind ahb_apb_bridge, costs nothing extra on the fabric
+  #
+  # irq numbering follows Gowin's eMPU M1 so m1kern's target layer ports over
+  # unchanged. see docs/memory-map.md
+  # ---------------------------------------------------------------------------
+  peripherals:
+    - type: gpio
+      name: gpio0
+      bus: ahb
+      base: 0x40000000
+      irq: 4
+      width: 2
+
+    - type: uart
+      name: uart0
+      bus: apb
+      base: 0x50004000
+      irq: 0
+
+  # ---------------------------------------------------------------------------
+  # Address windows reserved for blocks that are not part of m1core, so you can
+  # drop your own in without touching the map. Gowin calls these "AHB master
+  # 1-6" and "APB master 1-16"; they are slaves from the CPU's point of view
+  # ---------------------------------------------------------------------------
+  expansion:
+    apb: { base: 0x60000000, slots: 16, size_kb: 1024 }
+    ahb: { base: 0x80000000, slots: 6,  size_kb: 16384 }

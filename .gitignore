@@ -2,6 +2,8 @@
 boards/*/impl/
 
 # build artifacts
-fw/build/
 sim/build/
+sw/baremetal/*/*/build/
+sw/baremetal/*/*/build-sim/
+sw/m1kern/build/
 *.vcd

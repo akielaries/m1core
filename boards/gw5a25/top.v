@@ -63,8 +63,11 @@ module top (
   // synthesis cannot find it, adjust the path until it does; it is relative to
   // wherever GowinSynthesis runs, not to this file
   m1core_soc #(
-    .ITCM_WORDS (4096),          // 16 kb
-    .DTCM_WORDS (2048),          // 8 kb
+    // sized to match the linker scripts. m1kern links for 32k/16k, and if the
+    // hardware is smaller the address simply wraps in ahb_sram rather than
+    // faulting, so an oversized stack silently aliases onto .data
+    .ITCM_WORDS (8192),          // 32 kb
+    .DTCM_WORDS (4096),          // 16 kb
     .GPIO_WIDTH (2),
     .ITCM_INIT  ("")
   ) u_soc (

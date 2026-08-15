@@ -38,7 +38,7 @@ module tb_mvp;
     .ITCM_WORDS (4096),
     .DTCM_WORDS (2048),
     .GPIO_WIDTH (2),
-    .ITCM_INIT  ("../sw/apps/blink/build-sim/blink_sim.hex")
+    .ITCM_INIT  ("../sw/baremetal/apps/blink/build-sim/blink_sim.hex")
   ) dut (
     .clk   (clk),
     .rst_n (rst_n),
@@ -106,7 +106,7 @@ module tb_mvp;
   // firmware image, built by make -C ../fw. the length is discovered rather
   // than hardcoded so the test cannot silently under-verify a bigger image.
   // $readmemh warns that the file is shorter than the array, that is expected
-  localparam string FW_HEX = "../sw/apps/blink/build/blink.hex";
+  localparam string FW_HEX = "../sw/baremetal/apps/blink/build/blink.hex";
   logic [31:0] fw_image [0:1023];
   integer      fw_words;
 
@@ -310,7 +310,9 @@ module tb_mvp;
 
       // the two words the core will consume on reset
       mem32_read(32'h0000_0000, data);
-      expect32("fw initial sp", data, 32'h2000_2000);
+      // from the loaded image rather than hardcoded: the stack top follows the
+      // dtcm size in the linker script
+      expect32("fw initial sp", data, fw_image[0]);
       mem32_read(32'h0000_0004, data);
       if (!data[0]) begin
         $display("FAIL reset vector thumb bit clear: %08x", data);

@@ -38,6 +38,13 @@ module m1core_cpu (
   output wire        dbg_halt_event,
   output reg         dbg_bkpt_hit,
 
+  // exception interface to the nvic
+  input  wire        pend_valid,
+  input  wire [5:0]  pend_num,
+  input  wire [2:0]  pend_prio,
+  output reg         exc_taken,
+  output reg  [5:0]  exc_taken_num,
+
   // debug register access, only honoured while halted
   input  wire        dreg_req,
   input  wire        dreg_wnr,
@@ -66,6 +73,12 @@ module m1core_cpu (
   localparam [4:0] ST_MEM_D = 5'd11;
   localparam [4:0] ST_MULTI_A = 5'd12;
   localparam [4:0] ST_MULTI_D = 5'd13;
+  localparam [4:0] ST_EXC_PUSH_A = 5'd14;
+  localparam [4:0] ST_EXC_PUSH_D = 5'd15;
+  localparam [4:0] ST_EXC_VEC_A  = 5'd16;
+  localparam [4:0] ST_EXC_VEC_D  = 5'd17;
+  localparam [4:0] ST_EXC_POP_A  = 5'd18;
+  localparam [4:0] ST_EXC_POP_D  = 5'd19;
 
   reg [4:0] state;
 
@@ -75,6 +88,38 @@ module m1core_cpu (
   reg [31:0] pc;
   reg        n_flag, z_flag, c_flag, v_flag;
   reg        primask;
+
+  // ---- exception state ----
+  // sp is banked. handler mode always uses msp; thread mode picks with
+  // control.spsel. regs[13] is left unused so every sp access goes through the
+  // banking, which is the whole point
+  reg [31:0] sp_main;
+  reg [31:0] sp_process;
+  reg        mode_handler;
+  reg        control_spsel;
+  reg [5:0]  ipsr;
+
+  // execution priority, smaller wins. 6 means thread, nothing active.
+  // the stack is 4 deep because with two priority bits nothing can nest deeper
+  reg [2:0]  cur_prio;
+  reg [2:0]  prio_stack [0:3];
+  reg [2:0]  prio_sp;
+
+  reg [2:0]  exc_cnt;
+  reg [31:0] exc_frame;
+  reg [31:0] exc_ret_addr;
+  reg [5:0]  exc_num;
+  reg [31:0] exc_return;
+  reg [2:0]  exc_new_prio;
+
+  wire use_psp = !mode_handler && control_spsel;
+  wire [31:0] sp_read = use_psp ? sp_process : sp_main;
+
+  // an exception is taken at an instruction boundary when something is pending
+  // at a strictly higher priority than what is currently executing. primask
+  // masks everything with a configurable priority, which is everything the nvic
+  // can present today
+  wire exc_ready = pend_valid && (pend_prio < cur_prio) && !primask;
 
   reg [15:0] inst;
   reg [15:0] inst2;
@@ -107,7 +152,9 @@ module m1core_cpu (
   // is all that wait state support costs the core
   wire in_data_phase = (state == ST_RST_SP_D) || (state == ST_RST_PC_D) ||
                        (state == ST_FETCH_D)  || (state == ST_FETCH2_D) ||
-                       (state == ST_MEM_D)    || (state == ST_MULTI_D);
+                       (state == ST_MEM_D)    || (state == ST_MULTI_D) ||
+                       (state == ST_EXC_VEC_D) || (state == ST_EXC_POP_D) ||
+                       (state == ST_EXC_PUSH_D);
 
   // a debug event (vector catch, bkpt, completed step) has to latch c_halt in
   // the scs. without that the core halts and then immediately resumes on the
@@ -127,7 +174,13 @@ module m1core_cpu (
   // r15 reads as the address of the current instruction plus 4
   function automatic [31:0] rd(input [3:0] i);
     begin
-      rd = (i == 4'd15) ? (pc + 32'd4) : regs[i];
+      if (i == 4'd15) begin
+        rd = pc + 32'd4;
+      end else if (i == 4'd13) begin
+        rd = sp_read;
+      end else begin
+        rd = regs[i];
+      end
     end
   endfunction
 
@@ -274,6 +327,7 @@ module m1core_cpu (
   reg [32:0] sh;
   reg [31:0] res, base, addr, val;
   reg [31:0] rdv, rmv, rnv;
+  reg [31:0] msr_val;
   reg [3:0]  rd_i, rn_i, rm_i;
   reg [31:0] imm;
   reg [3:0]  cnt;
@@ -288,11 +342,24 @@ module m1core_cpu (
     end
   endtask
 
+  // write whichever stack pointer is currently selected
+  task automatic wr_sp(input [31:0] v);
+    begin
+      if (use_psp) begin
+        sp_process <= v;
+      end else begin
+        sp_main <= v;
+      end
+    end
+  endtask
+
   // write a general register, r15 is a branch
   task automatic wreg(input [3:0] i, input [31:0] v);
     begin
       if (i == 4'd15) begin
         pc <= v & 32'hffff_fffe;
+      end else if (i == 4'd13) begin
+        wr_sp(v);
       end else begin
         regs[i] <= v;
       end
@@ -308,6 +375,25 @@ module m1core_cpu (
       c_flag       <= 1'b0;
       v_flag       <= 1'b0;
       primask      <= 1'b0;
+      sp_main      <= 32'd0;
+      sp_process   <= 32'd0;
+      mode_handler <= 1'b0;
+      control_spsel <= 1'b0;
+      ipsr         <= 6'd0;
+      cur_prio     <= 3'd6;
+      prio_sp      <= 3'd0;
+      prio_stack[0] <= 3'd6;
+      prio_stack[1] <= 3'd6;
+      prio_stack[2] <= 3'd6;
+      prio_stack[3] <= 3'd6;
+      exc_cnt      <= 3'd0;
+      exc_frame    <= 32'd0;
+      exc_ret_addr <= 32'd0;
+      exc_num      <= 6'd0;
+      exc_return   <= 32'd0;
+      exc_new_prio <= 3'd6;
+      exc_taken    <= 1'b0;
+      exc_taken_num <= 6'd0;
       bus_req      <= 1'b0;
       bus_addr     <= 32'd0;
       bus_write    <= 1'b0;
@@ -339,6 +425,12 @@ module m1core_cpu (
         regs[k] <= 32'd0;
       end
     end else if (sys_reset_req) begin
+      mode_handler  <= 1'b0;
+      control_spsel <= 1'b0;
+      ipsr          <= 6'd0;
+      cur_prio      <= 3'd6;
+      prio_sp       <= 3'd0;
+      exc_taken     <= 1'b0;
       // aircr.sysresetreq from the debugger. with no nrst wired this is the
       // only reset path gdb has, and without it a load leaves the core halted
       // at a stale pc with a stale sp, so resuming runs the old image
@@ -355,7 +447,8 @@ module m1core_cpu (
       // slave is inserting wait states, hold everything
       dreg_ack <= 1'b0;
     end else begin
-      dreg_ack <= 1'b0;
+      dreg_ack  <= 1'b0;
+      exc_taken <= 1'b0;
 
       case (state)
         // reset vector fetch: msp from word 0, pc from word 1
@@ -371,7 +464,7 @@ module m1core_cpu (
         end
 
         ST_RST_SP_D: begin
-          regs[13] <= bus_rdata;
+          sp_main <= bus_rdata;
           state    <= ST_RST_PC_A;
         end
 
@@ -415,8 +508,9 @@ module m1core_cpu (
                 5'd15:   dreg_rdata <= pc;
                 5'd16:   dreg_rdata <= {n_flag, z_flag, c_flag, v_flag, 4'd0,
                                         16'd0, 8'd0};
-                5'd17:   dreg_rdata <= regs[13];
-                5'd18:   dreg_rdata <= regs[13];
+                5'd13:   dreg_rdata <= sp_read;
+                5'd17:   dreg_rdata <= sp_main;
+                5'd18:   dreg_rdata <= sp_process;
                 5'd20:   dreg_rdata <= {31'd0, primask};
                 default: dreg_rdata <= (dreg_sel <= 5'd14) ? regs[dreg_sel[3:0]] : 32'd0;
               endcase
@@ -436,13 +530,25 @@ module m1core_cpu (
         end
 
         ST_FETCH_A: begin
-          bus_req   <= 1'b1;
-          bus_addr  <= pc;
-          bus_write <= 1'b0;
-          bus_size  <= SZ_HALF;
-          if (bus_gnt) begin
-            bus_req <= 1'b0;
-            state   <= ST_FETCH_D;
+          // an instruction boundary is the only place an asynchronous exception
+          // is allowed in. the not yet executed instruction's address is the
+          // return address
+          if (exc_ready) begin
+            exc_num      <= pend_num;
+            exc_ret_addr <= pc;
+            exc_new_prio <= pend_prio;
+            exc_cnt      <= 3'd0;
+            bus_req      <= 1'b0;
+            state        <= ST_EXC_PUSH_A;
+          end else begin
+            bus_req   <= 1'b1;
+            bus_addr  <= pc;
+            bus_write <= 1'b0;
+            bus_size  <= SZ_HALF;
+            if (bus_gnt) begin
+              bus_req <= 1'b0;
+              state   <= ST_FETCH_D;
+            end
           end
         end
 
@@ -652,7 +758,17 @@ module m1core_cpu (
                   if (inst[7]) begin
                     regs[14] <= (pc + 32'd2) | 32'd1;
                   end
-                  pc <= rmv & 32'hffff_fffe;
+                  // in handler mode a branch to an EXC_RETURN magic value is an
+                  // exception return, not a branch. this is how every handler
+                  // written in c gets back, via bx lr
+                  if (mode_handler && (rmv[31:4] == 28'hfffffff)) begin
+                    exc_return <= rmv;
+                    exc_frame  <= rmv[2] ? sp_process : sp_main;
+                    exc_cnt    <= 3'd0;
+                    state      <= ST_EXC_POP_A;
+                  end else begin
+                    pc <= rmv & 32'hffff_fffe;
+                  end
                 end
               endcase
             end
@@ -771,7 +887,7 @@ module m1core_cpu (
 
             // ---- load/store sp relative ----
             6'b1001??: begin
-              addr = regs[13] + {22'd0, inst[7:0], 2'b00};
+              addr = sp_read + {22'd0, inst[7:0], 2'b00};
               ld_rd     <= {1'b0, inst[10:8]};
               ld_lane   <= addr[1:0];
               ld_signed <= 1'b0;
@@ -795,7 +911,7 @@ module m1core_cpu (
             6'b1010??: begin
               rd_i = {1'b0, inst[10:8]};
               if (inst[11]) begin
-                regs[rd_i] <= regs[13] + {22'd0, inst[7:0], 2'b00};
+                regs[rd_i] <= sp_read + {22'd0, inst[7:0], 2'b00};
               end else begin
                 regs[rd_i] <= pc_align4 + {22'd0, inst[7:0], 2'b00};
               end
@@ -808,9 +924,9 @@ module m1core_cpu (
                 // the immediate is scaled by 4, not 2, so sp stays word aligned
                 7'b0000_???: begin
                   if (inst[7]) begin
-                    regs[13] <= regs[13] - {23'd0, inst[6:0], 2'b00};
+                    wr_sp(sp_read - {23'd0, inst[6:0], 2'b00});
                   end else begin
-                    regs[13] <= regs[13] + {23'd0, inst[6:0], 2'b00};
+                    wr_sp(sp_read + {23'd0, inst[6:0], 2'b00});
                   end
                 end
                 // sign and zero extend
@@ -862,21 +978,21 @@ module m1core_cpu (
                       // pop, load upward from sp
                       multi_load        <= 1'b1;
                       multi_list        <= inst[7:0];
-                      multi_addr        <= regs[13];
+                      multi_addr        <= sp_read;
                       multi_extra       <= inst[8];
                       multi_doing_extra <= 1'b0;
                       multi_writeback   <= 1'b0;
-                      regs[13]          <= regs[13] + {26'd0, cnt, 2'b00};
+                      wr_sp(sp_read + {26'd0, cnt, 2'b00});
                       state             <= ST_MULTI_A;
                     end else begin
                       // push, store downward, lowest register at lowest address
                       multi_load        <= 1'b0;
                       multi_list        <= inst[7:0];
-                      multi_addr        <= regs[13] - {26'd0, cnt, 2'b00};
+                      multi_addr        <= sp_read - {26'd0, cnt, 2'b00};
                       multi_extra       <= inst[8];
                       multi_doing_extra <= 1'b0;
                       multi_writeback   <= 1'b0;
-                      regs[13]          <= regs[13] - {26'd0, cnt, 2'b00};
+                      wr_sp(sp_read - {26'd0, cnt, 2'b00});
                       state             <= ST_MULTI_A;
                     end
                   end
@@ -903,9 +1019,13 @@ module m1core_cpu (
             // ---- conditional branch, svc, udf ----
             6'b1101??: begin
               if (inst[11:8] == 4'hf) begin
-                // svc, no exception model yet so stop where the debugger sees it
-                state <= ST_HALTED;
-                pc    <= pc;
+                // svc is synchronous: taken now, not routed through the nvic.
+                // the return address is the instruction after it
+                exc_num      <= 6'd11;
+                exc_ret_addr <= pc + 32'd2;
+                exc_new_prio <= 3'd2;
+                exc_cnt      <= 3'd0;
+                state        <= ST_EXC_PUSH_A;
               end else if (inst[11:8] == 4'he) begin
                 // permanently undefined
                 state <= ST_HALTED;
@@ -929,9 +1049,42 @@ module m1core_cpu (
                       {{8{inst[10]}},
                        inst[10] ^ ~inst2[13], inst[10] ^ ~inst2[11],
                        inst[9:0], inst2[10:0], 1'b0};
+              // mrs: hw1 = 0xf3ef, hw2 = 10x0 Rd[3:0] SYSm[7:0]
+              // msr: hw1 = 0xf380|Rn, hw2 = 0x8800 | SYSm[7:0]
+              // these are what an rtos uses to reach psp and control, so
+              // leaving them as nops silently breaks any context switch
+              end else if (inst[15:4] == 12'hf3e && inst2[15:14] == 2'b10) begin
+                // mrs Rd, SYSm
+                case (inst2[7:0])
+                  8'd0,
+                  8'd3:    regs[inst2[11:8]] <= {n_flag, z_flag, c_flag, v_flag,
+                                                 22'd0, ipsr};
+                  8'd5:    regs[inst2[11:8]] <= {26'd0, ipsr};
+                  8'd8:    regs[inst2[11:8]] <= sp_main;
+                  8'd9:    regs[inst2[11:8]] <= sp_process;
+                  8'd16:   regs[inst2[11:8]] <= {31'd0, primask};
+                  8'd20:   regs[inst2[11:8]] <= {30'd0, control_spsel, 1'b0};
+                  default: regs[inst2[11:8]] <= 32'd0;
+                endcase
+              end else if (inst[15:4] == 12'hf38 && inst2[15:14] == 2'b10) begin
+                // msr SYSm, Rn
+                // the operand has to land in a temporary first: assigning a
+                // masked 32 bit value straight into a one bit reg keeps bit 0,
+                // so `msr CONTROL, r0` with r0=2 would silently store zero and
+                // spsel would never be set
+                msr_val = rd(inst[3:0]);
+                case (inst2[7:0])
+                  8'd8:  sp_main    <= msr_val & 32'hffff_fffc;
+                  8'd9:  sp_process <= msr_val & 32'hffff_fffc;
+                  8'd16: primask    <= msr_val[0];
+                  // control is only writable from thread mode
+                  8'd20: if (!mode_handler) control_spsel <= msr_val[1];
+                  default: begin
+                  end
+                endcase
               end else begin
-                // msr, mrs and the barriers. treated as nops for now, which is
-                // safe because there is no exception model to configure yet
+                // dsb, dmb, isb and anything else 32-bit: nothing to do on a
+                // core with no store buffer or cache
               end
             end
           endcase
@@ -994,21 +1147,154 @@ module m1core_cpu (
         end
 
         ST_MULTI_D: begin
-          if (multi_load) begin
-            if (multi_doing_extra) begin
-              // pop into pc, the thumb bit is discarded on the branch
-              pc <= bus_rdata & 32'hffff_fffe;
-            end else begin
-              regs[lowest_set(multi_list)] <= bus_rdata;
-            end
-          end
-          if (multi_doing_extra) begin
+          // an EXC_RETURN value popped into pc means this is a handler
+          // returning with pop {pc}, not an ordinary branch. it has to be
+          // decided here and it has to win: the state assignment at the end of
+          // this block would otherwise overwrite the jump to the unstack and
+          // silently drop the return, leaving execution to run off the end of
+          // the handler
+          if (multi_load && multi_doing_extra && mode_handler &&
+              (bus_rdata[31:4] == 28'hfffffff)) begin
+            exc_return  <= bus_rdata;
+            exc_frame   <= bus_rdata[2] ? sp_process : sp_main;
+            exc_cnt     <= 3'd0;
             multi_extra <= 1'b0;
+            state       <= ST_EXC_POP_A;
           end else begin
-            multi_list <= multi_list & ~(8'd1 << lowest_set(multi_list));
+            if (multi_load) begin
+              if (multi_doing_extra) begin
+                pc <= bus_rdata & 32'hffff_fffe;
+              end else begin
+                regs[lowest_set(multi_list)] <= bus_rdata;
+              end
+            end
+            if (multi_doing_extra) begin
+              multi_extra <= 1'b0;
+            end else begin
+              multi_list <= multi_list & ~(8'd1 << lowest_set(multi_list));
+            end
+            multi_addr <= multi_addr + 32'd4;
+            state      <= ST_MULTI_A;
           end
-          multi_addr <= multi_addr + 32'd4;
-          state      <= ST_MULTI_A;
+        end
+
+        // -------------------------------------------------------------------
+        // exception entry: stack 8 words, then vector fetch
+        //
+        // frame layout, low address first: r0 r1 r2 r3 r12 lr returnaddr xpsr
+        // -------------------------------------------------------------------
+        ST_EXC_PUSH_A: begin
+          bus_req   <= 1'b1;
+          bus_write <= 1'b1;
+          bus_size  <= SZ_WORD;
+          bus_addr  <= (sp_read - 32'd32) + {27'd0, exc_cnt, 2'b00};
+          case (exc_cnt)
+            3'd0: bus_wdata <= regs[0];
+            3'd1: bus_wdata <= regs[1];
+            3'd2: bus_wdata <= regs[2];
+            3'd3: bus_wdata <= regs[3];
+            3'd4: bus_wdata <= regs[12];
+            3'd5: bus_wdata <= regs[14];
+            3'd6: bus_wdata <= exc_ret_addr;
+            // xpsr. bit 24 is the thumb bit and is always set on armv6-m
+            default: bus_wdata <= {n_flag, z_flag, c_flag, v_flag, 3'd0, 1'b1,
+                                   18'd0, ipsr};
+          endcase
+          if (bus_gnt) begin
+            bus_req <= 1'b0;
+            state   <= ST_EXC_PUSH_D;
+          end
+        end
+
+        ST_EXC_PUSH_D: begin
+          if (exc_cnt == 3'd7) begin
+            // the frame is written, now switch into handler mode
+            wr_sp(sp_read - 32'd32);
+            regs[14] <= mode_handler ? 32'hffff_fff1 :
+                        (control_spsel ? 32'hffff_fffd : 32'hffff_fff9);
+            prio_stack[prio_sp[1:0]] <= cur_prio;
+            prio_sp  <= prio_sp + 3'd1;
+            cur_prio <= exc_new_prio;
+            mode_handler <= 1'b1;
+            ipsr     <= exc_num;
+            exc_taken     <= 1'b1;
+            exc_taken_num <= exc_num;
+            exc_cnt  <= 3'd0;
+            state    <= ST_EXC_VEC_A;
+          end else begin
+            exc_cnt <= exc_cnt + 3'd1;
+            state   <= ST_EXC_PUSH_A;
+          end
+        end
+
+        ST_EXC_VEC_A: begin
+          bus_req   <= 1'b1;
+          bus_write <= 1'b0;
+          bus_size  <= SZ_WORD;
+          // no vtor on armv6-m, the table is fixed at zero
+          bus_addr  <= {24'd0, exc_num, 2'b00};
+          if (bus_gnt) begin
+            bus_req <= 1'b0;
+            state   <= ST_EXC_VEC_D;
+          end
+        end
+
+        ST_EXC_VEC_D: begin
+          pc    <= bus_rdata & 32'hffff_fffe;
+          state <= ST_FETCH_A;
+        end
+
+        // -------------------------------------------------------------------
+        // exception return: unstack the same 8 words
+        // -------------------------------------------------------------------
+        ST_EXC_POP_A: begin
+          bus_req   <= 1'b1;
+          bus_write <= 1'b0;
+          bus_size  <= SZ_WORD;
+          bus_addr  <= exc_frame + {27'd0, exc_cnt, 2'b00};
+          if (bus_gnt) begin
+            bus_req <= 1'b0;
+            state   <= ST_EXC_POP_D;
+          end
+        end
+
+        ST_EXC_POP_D: begin
+          case (exc_cnt)
+            3'd0: regs[0]  <= bus_rdata;
+            3'd1: regs[1]  <= bus_rdata;
+            3'd2: regs[2]  <= bus_rdata;
+            3'd3: regs[3]  <= bus_rdata;
+            3'd4: regs[12] <= bus_rdata;
+            3'd5: regs[14] <= bus_rdata;
+            3'd6: pc       <= bus_rdata & 32'hffff_fffe;
+            default: begin
+              {n_flag, z_flag, c_flag, v_flag} <= bus_rdata[31:28];
+              ipsr <= bus_rdata[5:0];
+            end
+          endcase
+
+          if (exc_cnt == 3'd7) begin
+            // restore the mode and stack selection the exc_return value asks
+            // for, then hand the stack space back
+            mode_handler  <= !exc_return[3];
+            control_spsel <= exc_return[3] ? exc_return[2] : 1'b0;
+            if (exc_return[2]) begin
+              sp_process <= exc_frame + 32'd32;
+            end else begin
+              sp_main <= exc_frame + 32'd32;
+            end
+            if (prio_sp != 3'd0) begin
+              cur_prio <= prio_stack[prio_sp[1:0] - 3'd1];
+              prio_sp  <= prio_sp - 3'd1;
+            end else begin
+              cur_prio <= 3'd6;
+            end
+            exc_cnt <= 3'd0;
+            state   <= ST_FETCH_A;
+          end else begin
+            exc_cnt <= exc_cnt + 3'd1;
+            state   <= ST_EXC_POP_A;
+          end
         end
 
         default: begin

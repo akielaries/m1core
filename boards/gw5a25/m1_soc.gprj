@@ -10,12 +10,14 @@
         <File path="../../rtl/debug/mem_ap.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/debug/ppb_regs.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/core/m1core_cpu.v" type="file.verilog" enable="1"/>
+        <File path="../../rtl/core/m1core_nvic.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/soc/ahb_arb.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/soc/ahb_fabric.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/soc/ahb_sram.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/periph/ahb_gpio.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/periph/apb_uart.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/soc/ahb_apb_bridge.v" type="file.verilog" enable="1"/>
+        <File path="../../rtl/soc/m1core_apb.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/soc/m1core_soc.v" type="file.verilog" enable="1"/>
         <File path="top.v" type="file.verilog" enable="1"/>
         <File path="pins.cst" type="file.cst" enable="1"/>

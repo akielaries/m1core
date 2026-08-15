@@ -29,7 +29,7 @@ module tb_core;
     .ITCM_WORDS (4096),
     .DTCM_WORDS (2048),
     .GPIO_WIDTH (2),
-    .ITCM_INIT  ("../sw/tests/isa/build/isatest.hex")
+    .ITCM_INIT  ("../sw/baremetal/tests/isa/build/isatest.hex")
   ) dut (
     .clk   (clk),
     .rst_n (rst_n),

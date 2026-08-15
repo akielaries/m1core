@@ -1,0 +1,38 @@
+# register layout for the m1core uart
+#
+# this is the inner layer of the two layer split described in docs/soc-config.md:
+# it answers "what is inside a uart", while boards/*/soc.yaml answers "is there a
+# uart and where". long term this file is what Cheby produces; the shape is kept
+# close to Cheby's so swapping it in is mechanical.
+type: uart
+struct: uart_t
+doc: cmsdk compatible uart, so GOWIN_M1_uart.c drives it unchanged
+size: 0x1000
+module: apb_uart
+
+# external pins, exported through the generated wrapper up to the soc top
+pins:
+  - { name: rxd, dir: input }
+  - { name: txd, dir: output }
+
+# interrupt output port on the module, if it has one
+irq_port: irq
+
+registers:
+  - { name: DATA,      offset: 0x00, doc: "tx on write, rx on read" }
+  - { name: STATE,     offset: 0x04, doc: "[0]TXBF [1]RXBF [2]TXOR [3]RXOR" }
+  - { name: CTRL,      offset: 0x08, doc: "[0]TXEN [1]RXEN [2]TXIRQEN [3]RXIRQEN" }
+  - { name: INTSTATUS, offset: 0x0c, doc: "read pending, write 1 to clear" }
+  - { name: BAUDDIV,   offset: 0x10, doc: "system clocks per bit, min 16" }
+
+bits:
+  STATE:
+    TXBF: 0
+    RXBF: 1
+    TXOR: 2
+    RXOR: 3
+  CTRL:
+    TXEN: 0
+    RXEN: 1
+    TXIRQEN: 2
+    RXIRQEN: 3

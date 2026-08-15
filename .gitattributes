@@ -9,8 +9,9 @@
 boards/*/impl/**    linguist-generated=true
 
 # Build artifacts
-fw/build/**         linguist-generated=true
 sim/build/**        linguist-generated=true
+sw/**/build/**      linguist-generated=true
+sw/**/build-sim/**  linguist-generated=true
 *.vcd               linguist-generated=true
 *.bin               linguist-generated=true
 *.elf               linguist-generated=true

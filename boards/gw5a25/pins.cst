@@ -66,11 +66,10 @@ IO_LOC  "GPIO[1]" D10;
 IO_PORT "GPIO[1]" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
 
 // ---------------------------------------------------------------------------
-// uart0 at 0x50004000. A1 is the ball the acm build uses for its uart tx, so it
-// is known to work as an output on this board. verify B2 before trusting rx.
-// note B2 is a dual-purpose I2C ball, which is already released as regular io
+// uart0 at 0x50004000, on the pmod block alongside the leds and gpio so the
+// whole thing lands on one connector
 // ---------------------------------------------------------------------------
-IO_LOC  "UART_TX" A1;
+IO_LOC  "UART_TX" L5;
 IO_PORT "UART_TX" IO_TYPE=LVCMOS33 PULL_MODE=NONE DRIVE=8;
-IO_LOC  "UART_RX" B2;
+IO_LOC  "UART_RX" K5;
 IO_PORT "UART_RX" IO_TYPE=LVCMOS33 PULL_MODE=UP;
