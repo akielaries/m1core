@@ -34,41 +34,78 @@ module top (
   // as a balanced tree it is 33.394 MHz, which leaves 10 ns of slack at 25 and
   // means the divider is now costing real throughput.
   //
-  // define M1CORE_PLL to drive the mcu from a pll instead. generate it in the
-  // gowin ide, IP Core Generator > Hard Module > CLOCK > PLL:
+  // the pll is the design now and needs no define. define M1CORE_DIVIDER to go
+  // back to HCLK/2, but note that then nothing instantiates Gowin_PLL, it
+  // becomes a top level candidate, and the tool may synthesise it instead of
+  // this module: every pin in pins.cst then reports CT1135 "can't find object".
+  // set TopModule explicitly and that cannot happen either way.
   //
-  //   input   50 MHz          (HCLK, ball E2)
-  //   output  30 MHz          measured Fmax is 33.4, so do not sit on it
-  //   name    m1core_pll      or edit the instance below to match
+  // generated in the gowin ide, IP Core Generator > Hard Module > CLOCK > PLL:
   //
-  // check the generated module's port names against this instantiation. the ip
-  // generator names them per version and getting them wrong is a build error,
-  // not a silent problem, so it is cheap to find.
+  //   Common  > CLKIN 50.000, Enable Lock ticked
+  //   Clkout0 > 45 MHz    VCO 50 x 18 = 900, ODIV0 20
   //
-  // THREE things have to change together or the build is wrong in ways that do
-  // not show up until software runs:
-  //   1. define M1CORE_PLL for this file
-  //   2. mcu.yaml clock.hz, then regenerate. the fabric clock is compiled into
+  // 45 rather than a round 50 because measured Fmax is 52.158, and 50 leaves
+  // 4% for voltage and temperature. this was found by asking for 100 and
+  // reading what came back: at a 100 MHz constraint the design failed with
+  // -7183 ns of total negative slack across 1752 endpoints, and reported
+  // 52.158 as what it could actually reach. every figure before that (25.697,
+  // 33.394, 44) was measured while the sdc asked for 25, so the tool stopped
+  // trying once it met that; those were floors
+  //
+  // switching between them is a define here, but the frequency is also
+  // compiled into the header and asked for in timing.sdc, so all three move
+  // together or the build is quietly wrong. see the note below
+  //
+  // the port names below match what that generator emits: module Gowin_PLL
+  // with clkin, clkout0 and lock. mdclk is the mdrp clock and only appears if
+  // mDRP is enabled under Optional Ports, which it should not be; if the
+  // generated module has it anyway, tie it to HCLK. a name that does not match
+  // is an elaboration error rather than anything subtle, so it is cheap to
+  // find and fix.
+  //
+  // TWO things have to change together with the pll frequency, or the build is
+  // wrong in ways that do not show up until software runs:
+  //   1. mcu.yaml clock.hz, then regenerate. the fabric clock is compiled into
   //      the header as a constant, so a stale value silently breaks the uart
   //      baud divisor and the rtc prescale
-  //   3. timing.sdc, see the commented block there
+  //   2. timing.sdc
   // ---------------------------------------------------------------------------
-`ifdef M1CORE_PLL
-  wire clk_sys;
-  wire pll_lock;
-
-  m1core_pll u_pll (
-    .clkin  (HCLK),
-    .clkout (clk_sys),
-    .lock   (pll_lock)
-  );
-`else
+`ifdef M1CORE_DIVIDER
   wire pll_lock = 1'b1;
   reg  clk_sys = 1'b0;
 
   always @(posedge HCLK) begin
     clk_sys <= ~clk_sys;
   end
+`else
+  wire clk_sys;
+  wire pll_lock;
+  wire pll_clk0;
+  wire pll_clk1;
+
+  // two outputs so a fallback frequency is one define away rather than an ip
+  // regeneration. define M1CORE_CLK1 to run from clkout1 instead of clkout0.
+  //
+  // mdclk must be a real running clock, not tied off. the generated wrapper
+  // feeds it to PLL_INIT, which clocks the arora v pll's initialisation
+  // sequence from it, and the generator writes defparam CLK_PERIOD = 20 into
+  // that instance: it is expecting 20 ns, which is HCLK. tied low the pll
+  // never initialises
+  Gowin_PLL u_pll (
+    .clkin   (HCLK),
+    .clkout0 (pll_clk0),
+    .clkout1 (pll_clk1),
+    .lock    (pll_lock),
+    .mdclk   (HCLK)
+  );
+
+`ifdef M1CORE_CLK1
+  assign clk_sys = pll_clk1;
+`else
+  assign clk_sys = pll_clk0;
+`endif
+
 `endif
 
   // the soc takes an active low reset, the board key is active high.

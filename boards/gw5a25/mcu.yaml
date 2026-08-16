@@ -24,8 +24,8 @@ mcu:
     # the fabric clock the design is synthesised with. software cannot read this
     # back (there is no PLL to interrogate) so it is emitted into the C header
     # as a constant and must match what boards/gw5a25/top.v produces
-    hz: 25000000
-    source: "50 MHz oscillator divided by two in top.v"
+    hz: 45000000
+    source: "pll from the 50 MHz oscillator, see boards/gw5a25/top.v"
 
   debug:
     # SWD only. JTAG is not implemented and is not planned: the whole point of

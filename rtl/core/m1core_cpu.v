@@ -85,6 +85,7 @@ module m1core_cpu (
   localparam [4:0] ST_EXC_VEC_D  = 5'd17;
   localparam [4:0] ST_EXC_POP_A  = 5'd18;
   localparam [4:0] ST_EXC_POP_D  = 5'd19;
+  localparam [4:0] ST_DECODE    = 5'd20;
 
   reg [4:0] state;
 
@@ -128,6 +129,22 @@ module m1core_cpu (
 
   wire use_psp = !mode_handler && control_spsel;
   wire [31:0] sp_read = use_psp ? sp_process : sp_main;
+
+  // operands, read one cycle ahead of execute.
+  //
+  // every read site in ST_EXEC indexes the register file with a constant
+  // expression over inst bits, so decode does not need to know the instruction
+  // format: it reads all eight candidates in parallel and execute picks. that
+  // is what makes this a substitution rather than a rewrite of the decoder.
+  //
+  // it is equivalent, not merely plausible: nothing writes regs, pc or sp
+  // between decode and execute, and rd() of r15 and r13 depend only on those.
+  // reading a cycle earlier therefore returns the same values.
+  //
+  // deliberately not reset. decode always runs before execute reaches them, and
+  // eight more 32 bit registers on the power on reset net is real fanout on a
+  // net that already drives 2054 loads
+  reg [31:0] r_210, r_53, r_86, r_108, r_hid, r_him, r_30, sp_q;
 
   // an exception is taken at an instruction boundary when something is pending
   // at a strictly higher priority than what is currently executing. primask
@@ -342,6 +359,13 @@ module m1core_cpu (
   reg [32:0] sh;
   reg [31:0] res, base, addr, val;
   reg [31:0] rdv, rmv, rnv;
+  // execute decides where it is going and what pc becomes, but state and pc are
+  // nonblocking, so neither can be read back later in the same cycle. these
+  // blocking copies make both readable at the end of the state, which is what
+  // lets the fetch for the next instruction be issued from here
+  reg [4:0]  nstate;
+  reg [31:0] pc_next;
+
   reg [31:0] msr_val;
   reg [3:0]  rd_i, rn_i, rm_i;
   reg [31:0] imm;
@@ -369,6 +393,35 @@ module m1core_cpu (
   endtask
 
   // write a general register, r15 is a branch
+  // raise the fetch request a cycle early. the grant is combinational from
+  // bus_req, so arriving at ST_FETCH_A with it already asserted turns a two
+  // cycle state into one. every path that falls through to a fetch should use
+  // this rather than leaving ST_FETCH_A to raise the request itself
+  task automatic issue_fetch(input [31:0] a);
+    begin
+      bus_req   <= 1'b1;
+      bus_addr  <= a;
+      bus_write <= 1'b0;
+      bus_size  <= SZ_HALF;
+      inst_pc   <= a;
+    end
+  endtask
+
+  // same as wreg, but a write to r15 lands in pc_next rather than pc, so the
+  // branch it represents is visible to the fetch issued at the end of execute
+  task automatic wreg_e(input [3:0] i, input [31:0] v);
+    begin
+      if (i == 4'd15) begin
+        pc_next = v & 32'hffff_fffe;
+      end else if (i == 4'd13) begin
+        wr_sp(v);
+      end else begin
+        regs[i] <= v;
+      end
+    end
+  endtask
+
+
   task automatic wreg(input [3:0] i, input [31:0] v);
     begin
       if (i == 4'd15) begin
@@ -579,7 +632,7 @@ module m1core_cpu (
             state <= ST_FETCH2_A;
           end else begin
             is32  <= 1'b0;
-            state <= ST_EXEC;
+            state <= ST_DECODE;
           end
         end
 
@@ -596,19 +649,31 @@ module m1core_cpu (
 
         ST_FETCH2_D: begin
           inst2 <= pc[1] ? bus_rdata[15:0] : bus_rdata[31:16];
+          state <= ST_DECODE;
+        end
+
+        ST_DECODE: begin
+          r_210 <= rd({1'b0, inst[2:0]});
+          r_53  <= rd({1'b0, inst[5:3]});
+          r_86  <= rd({1'b0, inst[8:6]});
+          r_108 <= rd({1'b0, inst[10:8]});
+          r_hid <= rd({inst[7], inst[2:0]});
+          r_him <= rd(inst[6:3]);
+          r_30  <= rd(inst[3:0]);
+          sp_q  <= sp_read;
           state <= ST_EXEC;
         end
 
         ST_EXEC: begin
           // default: advance past the instruction, overridden by branches
-          pc    <= pc + (is32 ? 32'd4 : 32'd2);
+          pc_next     = pc + (is32 ? 32'd4 : 32'd2);
           if (stepping || halt_pending) begin
-            state <= ST_HALTED;
+            nstate  = ST_HALTED;
           end else begin
-            state <= ST_FETCH_A;
+            nstate  = ST_FETCH_A;
           end
           if (dbg_en && dbg_halt_req) begin
-            state <= ST_HALTED;
+            nstate  = ST_HALTED;
           end
 
           casez (inst[15:10])
@@ -618,8 +683,8 @@ module m1core_cpu (
                 rd_i = {1'b0, inst[2:0]};
                 rn_i = {1'b0, inst[5:3]};
                 rm_i = {1'b0, inst[8:6]};
-                rnv  = rd(rn_i);
-                rmv  = rd(rm_i);
+                rnv  = r_53;
+                rmv  = r_86;
                 if (inst[9]) begin
                   alu = addc(rnv, inst[10] ? ~{29'd0, inst[8:6]} : ~rmv, 1'b1);
                 end else begin
@@ -632,7 +697,7 @@ module m1core_cpu (
               end else begin
                 rd_i = {1'b0, inst[2:0]};
                 rm_i = {1'b0, inst[5:3]};
-                rmv  = rd(rm_i);
+                rmv  = r_53;
                 case (inst[12:11])
                   2'b00: sh = do_lsl(rmv, {3'd0, inst[10:6]}, c_flag);
                   2'b01: sh = do_lsr(rmv, (inst[10:6] == 5'd0) ? 8'd32 :
@@ -649,7 +714,7 @@ module m1core_cpu (
             // ---- mov/cmp/add/sub 8-bit immediate ----
             6'b001???: begin
               rd_i = {1'b0, inst[10:8]};
-              rdv  = rd(rd_i);
+              rdv  = r_108;
               imm  = {24'd0, inst[7:0]};
               case (inst[12:11])
                 2'b00: begin
@@ -683,8 +748,8 @@ module m1core_cpu (
             6'b010000: begin
               rd_i = {1'b0, inst[2:0]};
               rm_i = {1'b0, inst[5:3]};
-              rdv  = rd(rd_i);
-              rmv  = rd(rm_i);
+              rdv  = r_210;
+              rmv  = r_53;
               case (inst[9:6])
                 4'h0: begin  // and
                   res = rdv & rmv;
@@ -760,18 +825,18 @@ module m1core_cpu (
             6'b010001: begin
               rd_i = {inst[7], inst[2:0]};
               rm_i = inst[6:3];
-              rdv  = rd(rd_i);
-              rmv  = rd(rm_i);
+              rdv  = r_hid;
+              rmv  = r_him;
               case (inst[9:8])
                 2'b00: begin  // add reg, no flags
-                  wreg(rd_i, rdv + rmv);
+                  wreg_e(rd_i, rdv + rmv);
                 end
                 2'b01: begin  // cmp reg, flags only
                   alu = addc(rdv, ~rmv, 1'b1);
                   set_nz(alu[31:0]); c_flag <= alu[32]; v_flag <= alu[33];
                 end
                 2'b10: begin  // mov reg, no flags
-                  wreg(rd_i, rmv);
+                  wreg_e(rd_i, rmv);
                 end
                 default: begin  // bx / blx
                   if (inst[7]) begin
@@ -784,7 +849,7 @@ module m1core_cpu (
                     exc_return <= rmv;
                     exc_frame  <= rmv[2] ? sp_process : sp_main;
                     exc_cnt    <= 3'd0;
-                    state      <= ST_EXC_POP_A;
+                    nstate       = ST_EXC_POP_A;
                   end else if (!rmv[0]) begin
                     // armv6-m has no arm state, so a branch target with the
                     // thumb bit clear is a fault. silently masking it, which is
@@ -794,9 +859,9 @@ module m1core_cpu (
                     exc_ret_addr <= pc;
                     exc_new_prio <= PRIO_HARDFAULT;
                     exc_cnt      <= 3'd0;
-                    state        <= ST_EXC_PUSH_A;
+                    nstate         = ST_EXC_PUSH_A;
                   end else begin
-                    pc <= rmv & 32'hffff_fffe;
+                    pc_next  = rmv & 32'hffff_fffe;
                   end
                 end
               endcase
@@ -814,33 +879,33 @@ module m1core_cpu (
               bus_write  <= 1'b0;
               bus_size   <= SZ_WORD;
               bus_req    <= 1'b1;
-              state      <= ST_MEM_A;
+              nstate       = ST_MEM_A;
             end
 
             // ---- load/store register offset ----
             6'b0101??: begin
-              addr = rd({1'b0, inst[5:3]}) + rd({1'b0, inst[8:6]});
+              addr = r_53 + r_86;
               ld_rd      <= {1'b0, inst[2:0]};
               ld_lane    <= addr[1:0];
               ld_to_pc   <= 1'b0;
               bus_addr   <= addr;
               bus_req    <= 1'b1;
-              state      <= ST_MEM_A;
+              nstate       = ST_MEM_A;
               case (inst[11:9])
                 3'b000: begin  // str
                   ld_is_load <= 1'b0; ld_size <= SZ_WORD; bus_size <= SZ_WORD;
                   bus_write <= 1'b1;
-                  bus_wdata <= st_place(rd({1'b0, inst[2:0]}), SZ_WORD, addr[1:0]);
+                  bus_wdata <= st_place(r_210, SZ_WORD, addr[1:0]);
                 end
                 3'b001: begin  // strh
                   ld_is_load <= 1'b0; ld_size <= SZ_HALF; bus_size <= SZ_HALF;
                   bus_write <= 1'b1;
-                  bus_wdata <= st_place(rd({1'b0, inst[2:0]}), SZ_HALF, addr[1:0]);
+                  bus_wdata <= st_place(r_210, SZ_HALF, addr[1:0]);
                 end
                 3'b010: begin  // strb
                   ld_is_load <= 1'b0; ld_size <= SZ_BYTE; bus_size <= SZ_BYTE;
                   bus_write <= 1'b1;
-                  bus_wdata <= st_place(rd({1'b0, inst[2:0]}), SZ_BYTE, addr[1:0]);
+                  bus_wdata <= st_place(r_210, SZ_BYTE, addr[1:0]);
                 end
                 3'b011: begin  // ldrsb
                   ld_is_load <= 1'b1; ld_size <= SZ_BYTE; ld_signed <= 1'b1;
@@ -868,9 +933,9 @@ module m1core_cpu (
             // ---- load/store word and byte, immediate offset ----
             6'b011???: begin
               if (inst[12]) begin
-                addr = rd({1'b0, inst[5:3]}) + {26'd0, inst[10:6]};
+                addr = r_53 + {26'd0, inst[10:6]};
               end else begin
-                addr = rd({1'b0, inst[5:3]}) + {24'd0, inst[10:6], 2'b00};
+                addr = r_53 + {24'd0, inst[10:6], 2'b00};
               end
               ld_rd     <= {1'b0, inst[2:0]};
               ld_lane   <= addr[1:0];
@@ -880,21 +945,21 @@ module m1core_cpu (
               bus_addr  <= addr;
               bus_size  <= inst[12] ? SZ_BYTE : SZ_WORD;
               bus_req   <= 1'b1;
-              state     <= ST_MEM_A;
+              nstate      = ST_MEM_A;
               if (inst[11]) begin
                 ld_is_load <= 1'b1;
                 bus_write  <= 1'b0;
               end else begin
                 ld_is_load <= 1'b0;
                 bus_write  <= 1'b1;
-                bus_wdata  <= st_place(rd({1'b0, inst[2:0]}),
+                bus_wdata  <= st_place(r_210,
                                        inst[12] ? SZ_BYTE : SZ_WORD, addr[1:0]);
               end
             end
 
             // ---- load/store halfword immediate ----
             6'b1000??: begin
-              addr = rd({1'b0, inst[5:3]}) + {25'd0, inst[10:6], 1'b0};
+              addr = r_53 + {25'd0, inst[10:6], 1'b0};
               ld_rd     <= {1'b0, inst[2:0]};
               ld_lane   <= addr[1:0];
               ld_signed <= 1'b0;
@@ -903,20 +968,20 @@ module m1core_cpu (
               bus_addr  <= addr;
               bus_size  <= SZ_HALF;
               bus_req   <= 1'b1;
-              state     <= ST_MEM_A;
+              nstate      = ST_MEM_A;
               if (inst[11]) begin
                 ld_is_load <= 1'b1;
                 bus_write  <= 1'b0;
               end else begin
                 ld_is_load <= 1'b0;
                 bus_write  <= 1'b1;
-                bus_wdata  <= st_place(rd({1'b0, inst[2:0]}), SZ_HALF, addr[1:0]);
+                bus_wdata  <= st_place(r_210, SZ_HALF, addr[1:0]);
               end
             end
 
             // ---- load/store sp relative ----
             6'b1001??: begin
-              addr = sp_read + {22'd0, inst[7:0], 2'b00};
+              addr = sp_q + {22'd0, inst[7:0], 2'b00};
               ld_rd     <= {1'b0, inst[10:8]};
               ld_lane   <= addr[1:0];
               ld_signed <= 1'b0;
@@ -925,14 +990,14 @@ module m1core_cpu (
               bus_addr  <= addr;
               bus_size  <= SZ_WORD;
               bus_req   <= 1'b1;
-              state     <= ST_MEM_A;
+              nstate      = ST_MEM_A;
               if (inst[11]) begin
                 ld_is_load <= 1'b1;
                 bus_write  <= 1'b0;
               end else begin
                 ld_is_load <= 1'b0;
                 bus_write  <= 1'b1;
-                bus_wdata  <= rd({1'b0, inst[10:8]});
+                bus_wdata  <= r_108;
               end
             end
 
@@ -940,7 +1005,7 @@ module m1core_cpu (
             6'b1010??: begin
               rd_i = {1'b0, inst[10:8]};
               if (inst[11]) begin
-                regs[rd_i] <= sp_read + {22'd0, inst[7:0], 2'b00};
+                regs[rd_i] <= sp_q + {22'd0, inst[7:0], 2'b00};
               end else begin
                 regs[rd_i] <= pc_align4 + {22'd0, inst[7:0], 2'b00};
               end
@@ -953,16 +1018,16 @@ module m1core_cpu (
                 // the immediate is scaled by 4, not 2, so sp stays word aligned
                 7'b0000_???: begin
                   if (inst[7]) begin
-                    wr_sp(sp_read - {23'd0, inst[6:0], 2'b00});
+                    wr_sp(sp_q - {23'd0, inst[6:0], 2'b00});
                   end else begin
-                    wr_sp(sp_read + {23'd0, inst[6:0], 2'b00});
+                    wr_sp(sp_q + {23'd0, inst[6:0], 2'b00});
                   end
                 end
                 // sign and zero extend
                 7'b0010_???: begin
                   rd_i = {1'b0, inst[2:0]};
                   rm_i = {1'b0, inst[5:3]};
-                  rmv  = rd(rm_i);
+                  rmv  = r_53;
                   case (inst[7:6])
                     2'b00: regs[rd_i] <= {{16{rmv[15]}}, rmv[15:0]};
                     2'b01: regs[rd_i] <= {{24{rmv[7]}}, rmv[7:0]};
@@ -974,7 +1039,7 @@ module m1core_cpu (
                 7'b1010_???: begin
                   rd_i = {1'b0, inst[2:0]};
                   rm_i = {1'b0, inst[5:3]};
-                  rmv  = rd(rm_i);
+                  rmv  = r_53;
                   case (inst[7:6])
                     2'b00: regs[rd_i] <= {rmv[7:0], rmv[15:8],
                                           rmv[23:16], rmv[31:24]};
@@ -991,8 +1056,8 @@ module m1core_cpu (
                 // bkpt, halt so the debugger sees it
                 7'b1110_???: begin
                   dbg_bkpt_hit <= 1'b1;
-                  state        <= ST_HALTED;
-                  pc           <= pc;
+                  nstate         = ST_HALTED;
+                  pc_next            = pc;
                 end
                 // hints, all nops here
                 7'b1111_???: begin
@@ -1007,22 +1072,22 @@ module m1core_cpu (
                       // pop, load upward from sp
                       multi_load        <= 1'b1;
                       multi_list        <= inst[7:0];
-                      multi_addr        <= sp_read;
+                      multi_addr        <= sp_q;
                       multi_extra       <= inst[8];
                       multi_doing_extra <= 1'b0;
                       multi_writeback   <= 1'b0;
-                      wr_sp(sp_read + {26'd0, cnt, 2'b00});
-                      state             <= ST_MULTI_A;
+                      wr_sp(sp_q + {26'd0, cnt, 2'b00});
+                      nstate              = ST_MULTI_A;
                     end else begin
                       // push, store downward, lowest register at lowest address
                       multi_load        <= 1'b0;
                       multi_list        <= inst[7:0];
-                      multi_addr        <= sp_read - {26'd0, cnt, 2'b00};
+                      multi_addr        <= sp_q - {26'd0, cnt, 2'b00};
                       multi_extra       <= inst[8];
                       multi_doing_extra <= 1'b0;
                       multi_writeback   <= 1'b0;
-                      wr_sp(sp_read - {26'd0, cnt, 2'b00});
-                      state             <= ST_MULTI_A;
+                      wr_sp(sp_q - {26'd0, cnt, 2'b00});
+                      nstate              = ST_MULTI_A;
                     end
                   end
                 end
@@ -1041,7 +1106,7 @@ module m1core_cpu (
                 multi_extra       <= 1'b0;
                 multi_doing_extra <= 1'b0;
                 multi_writeback   <= 1'b1;
-                state             <= ST_MULTI_A;
+                nstate              = ST_MULTI_A;
               end
             end
 
@@ -1054,7 +1119,7 @@ module m1core_cpu (
                 exc_ret_addr <= pc + 32'd2;
                 exc_new_prio <= 3'd2;
                 exc_cnt      <= 3'd0;
-                state        <= ST_EXC_PUSH_A;
+                nstate         = ST_EXC_PUSH_A;
               end else if (inst[11:8] == 4'he) begin
                 // permanently undefined. a real part takes a hardfault here
                 // rather than stopping, so a handler can report it
@@ -1062,15 +1127,15 @@ module m1core_cpu (
                 exc_ret_addr <= pc;
                 exc_new_prio <= PRIO_HARDFAULT;
                 exc_cnt      <= 3'd0;
-                state        <= ST_EXC_PUSH_A;
+                nstate         = ST_EXC_PUSH_A;
               end else if (cond_true(inst[11:8])) begin
-                pc <= pc + 32'd4 + {{23{inst[7]}}, inst[7:0], 1'b0};
+                pc_next  = pc + 32'd4 + {{23{inst[7]}}, inst[7:0], 1'b0};
               end
             end
 
             // ---- unconditional branch ----
             6'b11100?: begin
-              pc <= pc + 32'd4 + {{20{inst[10]}}, inst[10:0], 1'b0};
+              pc_next  = pc + 32'd4 + {{20{inst[10]}}, inst[10:0], 1'b0};
             end
 
             // ---- 32-bit encodings ----
@@ -1078,7 +1143,7 @@ module m1core_cpu (
               if (inst[15:11] == 5'b11110 && inst2[15:14] == 2'b11) begin
                 // bl, the only 32-bit branch in armv6-m
                 regs[14] <= (pc + 32'd4) | 32'd1;
-                pc <= pc + 32'd4 +
+                pc_next  = pc + 32'd4 +
                       {{8{inst[10]}},
                        inst[10] ^ ~inst2[13], inst[10] ^ ~inst2[11],
                        inst[9:0], inst2[10:0], 1'b0};
@@ -1105,8 +1170,20 @@ module m1core_cpu (
                 // masked 32 bit value straight into a one bit reg keeps bit 0,
                 // so `msr CONTROL, r0` with r0=2 would silently store zero and
                 // spsel would never be set
-                msr_val = rd(inst[3:0]);
+                msr_val = r_30;
                 case (inst2[7:0])
+                  // apsr, iapsr, eapsr and xpsr all write the condition flags.
+                  // ipsr and epsr are read only, so only the top four bits
+                  // land. these were missing entirely: msr apsr fell through to
+                  // the default and did nothing, so the flags kept whatever the
+                  // previous instruction left. mrs already read them back, which
+                  // is what made it look like it worked
+                  8'd0, 8'd1, 8'd2, 8'd3: begin
+                    n_flag <= msr_val[31];
+                    z_flag <= msr_val[30];
+                    c_flag <= msr_val[29];
+                    v_flag <= msr_val[28];
+                  end
                   8'd8:  sp_main    <= msr_val & 32'hffff_fffc;
                   8'd9:  sp_process <= msr_val & 32'hffff_fffc;
                   8'd16: primask    <= msr_val[0];
@@ -1121,6 +1198,18 @@ module m1core_cpu (
               end
             end
           endcase
+
+          // commit the blocking copies, and if the next state is a fetch,
+          // raise the request now. ST_FETCH_A used to spend two cycles: one to
+          // assert bus_req and a second to see bus_gnt, which is combinational
+          // from it. issuing here means the grant is already there on arrival.
+          // loads and stores never paid this because execute already asserted
+          // their request before entering ST_MEM_A
+          state <= nstate;
+          pc    <= pc_next;
+          if (nstate == ST_FETCH_A) begin
+            issue_fetch(pc_next);
+          end
         end
 
         // single memory access
@@ -1159,6 +1248,7 @@ module m1core_cpu (
             state <= ST_HALTED;
           end else begin
             state <= ST_FETCH_A;
+            issue_fetch(pc);
           end
         end
 
@@ -1172,6 +1262,7 @@ module m1core_cpu (
               state <= ST_HALTED;
             end else begin
               state <= ST_FETCH_A;
+              issue_fetch(pc);
             end
           end else begin
             bus_req   <= 1'b1;
@@ -1298,6 +1389,7 @@ module m1core_cpu (
         ST_EXC_VEC_D: begin
           pc    <= bus_rdata & 32'hffff_fffe;
           state <= ST_FETCH_A;
+          issue_fetch(bus_rdata & 32'hffff_fffe);
         end
 
         // -------------------------------------------------------------------

@@ -236,6 +236,41 @@ lines above each entry by peripheral name. `make checkyaml` reads the file,
 writes it back unchanged and requires the bytes to be identical, which is the
 whole safety argument for editing in place.
 
+## Verification
+
+Two kinds of instruction test, and the distinction matters.
+
+`sw/baremetal/tests/isa/isatest.S` is hand written and covers 341 instructions.
+That is a bring-up test: it proves each encoding was implemented at all. Its
+weakness is that it was written by reading the same architecture manual the RTL
+was written from, so a misreading lands in both and cancels out.
+
+`tools/isagen.py` is the other kind. It carries an **independent reference
+model** of the instruction semantics, written from the flag rules rather than
+from the RTL, and emits random programs together with the state the model says
+they should end in. A disagreement means one of the two is wrong and neither
+gets to be the definition of correct. `make isarand` runs it; the seed in
+`sim/Makefile` is the source of truth and the `.S` is a build product.
+
+It earned its place on the first run. Two findings:
+
+- **The generator was wrong first.** It emitted `lsrs rd, rm, #0` meaning
+  shift-by-32, but UAL gives LSR and ASR immediates the range 1..32, and the
+  assembler quietly turns `#0` into `movs` — a different instruction with
+  different flag rules. Shift immediates are generated as 1..32 now.
+- **Then it found a real gap in the core.** `MSR APSR` was not implemented.
+  The MSR decode handled SYSm 8, 9, 16 and 20 but not 0..3, so writes to the
+  condition flags fell through to the default and did nothing. `MRS` read them
+  back correctly, which is exactly what made the omission invisible: anything
+  that wrote the flags and read them back looked fine, and only a test that
+  wrote them and then ran arithmetic could see it.
+
+The shift and carry rules are what the generator aims at hardest, because that
+is where the manual is fiddly and reading it wrong twice the same way is
+easiest: `LSL #0` leaves C alone, `LSR #0` means 32, `ROR` by a multiple of 32
+keeps the value but still sets C, and the logical operations must leave C and V
+untouched.
+
 ## The standard map
 
 `tools/standard-map.yaml` is Gowin's eMPU M1 layout, copied from their own

@@ -1,5 +1,5 @@
 # builds every application and test
-SUBDIRS := apps/blink apps/hello tests/isa tests/exc
+SUBDIRS := apps/blink apps/hello tests/isa tests/isarand tests/exc
 
 .PHONY: all clean $(SUBDIRS)
 

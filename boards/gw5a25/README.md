@@ -177,8 +177,68 @@ is not a sum of independent paths.
 `state[1]` at 770 loads, `state[2]` at 535, `inst[6]` at 507. Depth is no
 longer what to attack.
 
-There is 10 ns of slack at 25 MHz. The /2 divider could come out in favour of a
-pll at around 33 MHz with no rtl change at all.
+The divider is gone in favour of a pll. Note what the numbers mean: 25.697,
+33.394 and 44 MHz were all measured while `timing.sdc` still asked for 25 MHz,
+so the tool stopped optimising as soon as it met that. They are floors. The
+first build that actually asks for the target is the one that says what the
+design can do.
+
+**Check worst setup slack before programming.** A peripheral that misses timing
+glitches. A cpu that misses timing computes the wrong answer intermittently and
+corrupts its own state, which presents as a software bug.
+
+### Asking for 100 MHz, and what it measured
+
+Constraining at 100 MHz failed, as expected: -7183 ns of total negative slack
+across 1752 endpoints. That was the point. **Actual Fmax 52.158 MHz** is what
+the design reaches when the tool is pushed, and every earlier number was a
+floor taken while it was coasting at a 25 MHz target.
+
+The failing paths were all `regs[] -> regs[]` and `regs[] -> inst[]` inside
+`u_core`: register file, through the `ST_EXEC` decode cone, back to the
+register file, 18 levels and about 19 ns. To halve that needs a pipeline
+register, not a tool setting.
+
+**ST_DECODE** is the first cut. Every read site in `ST_EXEC` indexes the
+register file with a constant expression over `inst` bits, so decode does not
+need to know the instruction format: it reads all eight candidates in parallel
+and execute picks one. That made it a substitution rather than a rewrite of the
+decoder, and it is equivalent rather than merely plausible, because nothing
+writes `regs`, `pc` or `sp` between decode and execute.
+
+It costs exactly one cycle per instruction, measured: **CPI 5.28 -> 6.28**,
+and bought **Fmax 52.158 -> 60.436**, +16% clock for +19% cycles. On its own
+that was a 3% throughput loss.
+
+### Getting the cycle back
+
+Counting cycles per state rather than looking at CPI alone showed where they
+went, and the answer was not where the pipelining work was aimed:
+
+    FETCH_A   682 cycles  31.9%   <- 2.00 per instruction
+    FETCH_D   341         15.9%
+    DECODE    341         15.9%
+    EXEC      341         15.9%
+    MEM_A/D    73 each     3.4%
+
+`ST_FETCH_A` was spending **two cycles on every instruction**, a third of all
+cycles in the design. The cause is a handshake: `bus_req` is a registered
+output that gets cleared when a grant arrives, and `m1_gnt = m1_req && !m0_req
+&& hready` is combinational from it. Entering the state with `bus_req` low
+means one cycle to raise it and a second to see the grant come back. Loads and
+stores never paid it, because execute already asserts their request before
+entering `ST_MEM_A` -- which is exactly the fix, applied to fetch.
+
+Execute now decides its next state and next pc in blocking `nstate` and
+`pc_next`, so both are readable at the end of the cycle, and issues the fetch
+itself when it is going straight to one. The same is done after loads, after
+multi-register transfers and after a vector fetch.
+
+**FETCH_A is 342 cycles for 341 instructions now, and CPI is back to 5.28** --
+the decode stage is paid for. Four cycles is the floor for this structure
+(fetch address, fetch data, decode, execute); going below it needs the fetch of
+the next instruction to overlap the execute of the current one, which is a
+pipeline rather than a state machine.
 
 `timing.sdc` deliberately does **not** declare SWCLK as a clock. The phy
 oversamples it and detects edges, so it never reaches a register clock pin and

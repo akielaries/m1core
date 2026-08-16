@@ -7,3 +7,8 @@ sw/baremetal/*/*/build/
 sw/baremetal/*/*/build-sim/
 sw/m1kern/build/
 *.vcd
+
+# generated from tools/isagen.py, the seed in sim/Makefile is the source
+sw/baremetal/tests/isarand/isarand.S
+tb/m1core_clock.vh
+tb/isarand_blocks.vh

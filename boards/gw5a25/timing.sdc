@@ -10,29 +10,32 @@
 // second clock domain to constrain
 create_clock -name HCLK -period 20 -waveform {0 10} [get_ports {HCLK}]
 
-// the mcu runs on HCLK divided by two, generated in top.v. without this the
-// tool has no description of clk_sys and invents a relationship: the first
-// build reported required=12.9 ns on a path between two clk_sys registers,
-// which is neither the 20 ns nor the 40 ns period and is not a number any
-// decision should be based on
-// must be one line: gowin's sdc parser does not accept backslash continuation
-create_generated_clock -name clk_sys -source [get_ports {HCLK}] -divide_by 2 [get_nets {clk_sys}]
-
-// the only violation the tool reports is a hold check on the divider flop
-// itself, launch clk_sys and capture HCLK, at -1.367 ns. it is an artifact of
-// where the generated clock is defined: on the net the flop drives, so the
-// tool gives the launch edge no insertion delay while the capture edge on the
-// same physical flop carries HCLK's 1.466 ns. that skew does not exist.
+// clk_sys is NOT declared here, and that is deliberate.
 //
-// nothing else in the design is clocked by HCLK, which the report confirms
-// with "No timing paths to get frequency of HCLK", so no real data crosses
-// this way and cutting the arc loses no coverage
-// must be one line: gowin's sdc parser does not accept backslash continuation
-set_false_path -from [get_clocks {clk_sys}] -to [get_clocks {HCLK}]
-
-// when top.v is built with M1CORE_PLL, clk_sys comes from the pll rather than
-// the divider. swap the two constraints above for the line below, adjusted to
-// whatever the ip generator actually named the output, and drop the false path:
-// the divider flop it exists for is no longer in the design
+// it was, twice: as a generated clock while it was HCLK/2, and then as a
+// create_clock once the pll arrived. the second form fails with
 //
-// create_clock -name clk_sys -period 33.333 [get_pins {u_pll/clkout}]
+//   TA2003 Can't set timing constraint to object clk_sys
+//   TA2004 Cannot get clock with name 'clk_sys'
+//
+// because top.v drives clk_sys with a plain assign from the pll output, and
+// synthesis merges that net away. by the time constraints are read there is no
+// object called clk_sys to attach anything to, and so nothing of that name to
+// reference afterwards either.
+//
+// the fix is not a better selector. the constraint is redundant: the tool reads
+// the pll's own parameters and derives its output clocks from them. FCLKIN 50,
+// MDIV 18, ODIV0 9 is 100 MHz whether or not this file says so, and saying it
+// again can only disagree.
+//
+// so the pll is where the system clock frequency is set, and this file follows
+// rather than leads. check the report's Clock Summary for what was derived. if
+// a derived clock is ever genuinely missing rather than just renamed, the
+// selector that works is the instance pin, not the net:
+//
+//   create_clock -name clk_sys -period 10 [get_pins {u_pll/clkout0}]
+//
+// the divider era also needed a set_false_path from clk_sys to HCLK, cutting a
+// hold check on the divider flop that the tool analysed across two clocks that
+// were physically the same edge. no flop is clocked by HCLK any more, so that
+// constraint left with the divider that caused it

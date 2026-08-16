@@ -4,7 +4,15 @@ ROOT     := ..
 BUILD    := build
 # m1kern's device header is generated from the same description, so the two
 # bsps cannot disagree about an address
-M1KERN   := $(ROOT)/../m1kern
+# m1kern lives in a sibling checkout, so it is not always there: a clone of
+# this repo alone, or ci, has only this tree. the generated device header is
+# still checked when it is present, and skipped when it is not, rather than
+# making the whole regression depend on a directory outside the repository
+M1KERN     := $(ROOT)/../m1kern
+M1KERN_HDR := $(wildcard $(M1KERN)/targets/m1core/bsp/system/M1CORE.h)
+ifneq ($(M1KERN_HDR),)
+CMSIS_ARG  := --cmsis-header $(M1KERN_HDR)
+endif
 
 DAP_RTL := $(ROOT)/rtl/debug/swd_phy.v $(ROOT)/rtl/debug/sw_dp.v
 MVP_RTL := $(DAP_RTL) \
@@ -27,9 +35,9 @@ MVP_RTL := $(DAP_RTL) \
 
 IFLAGS := -g2012 -Wall -I$(ROOT)/tb
 
-.PHONY: all checkproj checkgen checkyaml dap core exc blink uart hello mvp exp periph fw m1kern wave clean
+.PHONY: all checkproj checkgen checkyaml dap core isarand exc FORCE blink uart hello mvp exp periph fw m1kern wave clean
 
-all: checkproj checkgen checkyaml dap core exc blink uart hello mvp exp periph
+all: checkproj checkgen checkyaml dap core isarand exc FORCE blink uart hello mvp exp periph
 
 # the gowin project keeps its own file list, so it can drift from the rtl on
 # disk without simulation noticing. this is the cheap way to catch that
@@ -50,13 +58,38 @@ checkgen:
 	    --memmap $(ROOT)/docs/memory-map.md \
 	    --apb-rtl $(ROOT)/rtl/mcu/m1core_apb.v \
 	    --ahb-rtl $(ROOT)/rtl/mcu/ahb_fabric.v \
+	    --sim-header $(ROOT)/tb/m1core_clock.vh \
 	    --mcu-rtl $(ROOT)/rtl/mcu/m1core_mcu.v \
-	    --cmsis-header $(M1KERN)/targets/m1core/bsp/system/M1CORE.h --check
+	    $(CMSIS_ARG) --check
 
 dap: $(BUILD)/tb_dap
 	$(VVP) $<
 
 core: $(BUILD)/tb_core fw
+	$(VVP) $<
+
+# the randomised test is generated, so the .S is a build product and the seed
+# is what is checked in. change the seed to get a different program
+ISARAND_SEED   ?= 1
+ISARAND_BLOCKS ?= 40
+ISARAND_LEN    ?= 12
+
+# make does not track variable values, so changing ISARAND_SEED on the command
+# line would otherwise leave the previously generated program in place and
+# silently test the same thing again. the parameters go through a stamp file
+# whose recipe always runs but only writes when they actually differ
+$(BUILD)/isarand.params: FORCE | $(BUILD)
+	@echo "$(ISARAND_SEED) $(ISARAND_BLOCKS) $(ISARAND_LEN)" > $@.new
+	@cmp -s $@.new $@ 2>/dev/null || mv $@.new $@
+	@rm -f $@.new
+
+FORCE:
+
+$(ROOT)/sw/baremetal/tests/isarand/isarand.S: $(ROOT)/tools/isagen.py $(BUILD)/isarand.params
+	@python3 $(ROOT)/tools/isagen.py -o $@ \
+	    --blocks $(ISARAND_BLOCKS) --len $(ISARAND_LEN) --seed $(ISARAND_SEED)
+
+isarand: $(BUILD)/tb_isarand fw
 	$(VVP) $<
 
 exc: $(BUILD)/tb_exc fw
@@ -98,7 +131,7 @@ $(BUILD)/tb_m1kern: $(MVP_RTL) $(ROOT)/tb/tb_m1kern.sv | $(BUILD)
 	$(IVERILOG) $(IFLAGS) -o $@ $(MVP_RTL) $(ROOT)/tb/tb_m1kern.sv
 
 # the testbenches load real firmware images, so build them first
-fw:
+fw: $(ROOT)/sw/baremetal/tests/isarand/isarand.S
 	@$(MAKE) --no-print-directory -C $(ROOT)/sw/baremetal
 
 wave: $(BUILD)/tb_mvp
@@ -137,6 +170,12 @@ $(BUILD)/tb_periph: $(PERIPH_RTL) $(ROOT)/tb/tb_periph.sv | $(BUILD)
 
 $(BUILD)/tb_mvp: $(MVP_RTL) $(ROOT)/tb/tb_mvp.sv $(ROOT)/tb/swd_host.svh | $(BUILD)
 	$(IVERILOG) $(IFLAGS) -o $@ $(MVP_RTL) $(ROOT)/tb/tb_mvp.sv
+
+# the .S carries the generated block count in tb/isarand_blocks.vh, which the
+# bench includes, so the generator has to have run before the bench compiles
+$(BUILD)/tb_isarand: $(MVP_RTL) $(ROOT)/tb/tb_isarand.sv \
+                     $(ROOT)/sw/baremetal/tests/isarand/isarand.S | $(BUILD)
+	$(IVERILOG) $(IFLAGS) -o $@ $(MVP_RTL) $(ROOT)/tb/tb_isarand.sv
 
 $(BUILD)/tb_core: $(MVP_RTL) $(ROOT)/tb/tb_core.sv | $(BUILD)
 	$(IVERILOG) $(IFLAGS) -o $@ $(MVP_RTL) $(ROOT)/tb/tb_core.sv
