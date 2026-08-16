@@ -45,6 +45,16 @@ module tb_exp;
   wire [31:0] exp_hrdata;
   wire        exp_hreadyout;
 
+  wire        px0_psel, px1_psel;
+  wire        px_penable, px_pwrite;
+  wire [31:0] px_paddr, px_pwdata;
+  wire [31:0] px0_prdata, px1_prdata;
+
+  // open drain, so they need pull ups exactly as a board would
+  wire i2c_scl, i2c_sda;
+  pullup (i2c_scl);
+  pullup (i2c_sda);
+
   m1core_mcu #(
     .ITCM_WORDS (4096),
     .DTCM_WORDS (2048),
@@ -58,6 +68,29 @@ module tb_exp;
     .gpio  (),
     .uart0_rxd (1'b1),
     .uart0_txd (),
+    // spi and i2c are here to prove the generator wires every peripheral type
+    // out to the top correctly. the board does not carry them because both
+    // need real pins
+    .spi_sclk   (),
+    .spi_mosi   (),
+    .spi_miso   (1'b1),
+    .spi_ssel_n (),
+    .i2c_scl    (i2c_scl),
+    .i2c_sda    (i2c_sda),
+    .apbexp0_psel    (px0_psel),
+    .apbexp0_penable (px_penable),
+    .apbexp0_pwrite  (px_pwrite),
+    .apbexp0_paddr   (px_paddr),
+    .apbexp0_pwdata  (px_pwdata),
+    .apbexp0_prdata  (px0_prdata),
+    .apbexp0_pready  (1'b1),
+    .apbexp1_psel    (px1_psel),
+    .apbexp1_penable (),
+    .apbexp1_pwrite  (),
+    .apbexp1_paddr   (),
+    .apbexp1_pwdata  (),
+    .apbexp1_prdata  (px1_prdata),
+    .apbexp1_pready  (1'b1),
     .ahbexp0_hsel      (exp_hsel),
     .ahbexp0_haddr     (exp_haddr),
     .ahbexp0_hwrite    (exp_hwrite),
@@ -103,6 +136,35 @@ module tb_exp;
 
   assign exp_hrdata    = user_regs[addr_q[3:2]];
   assign exp_hreadyout = 1'b1;
+
+  // --- two register blocks in the apb expansion window ----------------------
+  //
+  // this is the shape a cheby generated register map attaches in: one slot per
+  // block, sharing the address and data phase, differing only in psel
+  reg [31:0] px0_regs [0:3];
+  reg [31:0] px1_regs [0:3];
+
+  wire px0_wr = px0_psel && px_penable && px_pwrite;
+  wire px1_wr = px1_psel && px_penable && px_pwrite;
+
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      px0_regs[0] <= 32'd0; px0_regs[1] <= 32'd0;
+      px0_regs[2] <= 32'd0; px0_regs[3] <= 32'd0;
+      px1_regs[0] <= 32'd0; px1_regs[1] <= 32'd0;
+      px1_regs[2] <= 32'd0; px1_regs[3] <= 32'd0;
+    end else begin
+      if (px0_wr) begin
+        px0_regs[px_paddr[3:2]] <= px_pwdata;
+      end
+      if (px1_wr) begin
+        px1_regs[px_paddr[3:2]] <= px_pwdata;
+      end
+    end
+  end
+
+  assign px0_prdata = px0_regs[px_paddr[3:2]];
+  assign px1_prdata = px1_regs[px_paddr[3:2]];
 
   `include "swd_host.svh"
 
@@ -162,6 +224,32 @@ module tb_exp;
     // stops a stray probe access latching stickyerr
     mem32_read(32'h9000_0000, data);
     expect32("unmapped reads zero", data, 32'h0000_0000);
+
+    // --- apb expansion, sixteen 1 MB slots behind one bridge ----------------
+    mem32_write(32'h6000_0000, 32'h1111_2222);
+    mem32_write(32'h6010_0000, 32'h3333_4444);
+    repeat (4) @(posedge clk);
+    expect32("apb slot 0 written", px0_regs[0], 32'h1111_2222);
+    expect32("apb slot 1 written", px1_regs[0], 32'h3333_4444);
+
+    mem32_read(32'h6000_0000, data);
+    expect32("apb slot 0 read back", data, 32'h1111_2222);
+    mem32_read(32'h6010_0000, data);
+    expect32("apb slot 1 read back", data, 32'h3333_4444);
+
+    // a second register in the same slot, to prove the offset inside a window
+    // reaches the block rather than only the slot decode working
+    mem32_write(32'h6000_0008, 32'habcd_0001);
+    repeat (4) @(posedge clk);
+    expect32("apb offset within slot", px0_regs[2], 32'habcd_0001);
+
+    // an enabled slot must not answer for its neighbour
+    expect32("slot 1 untouched by slot 0", px1_regs[2], 32'h0000_0000);
+
+    // a slot inside the window with nothing attached must still complete. if
+    // pready never came back this read would hang the bus rather than fail
+    mem32_read(32'h6020_0000, data);
+    expect32("empty apb slot reads zero", data, 32'h0000_0000);
 
     if (errors == 0) begin
       $display("PASS");

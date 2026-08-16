@@ -1,0 +1,31 @@
+# register layout for the m1core spi master
+type: spi
+struct: spi_t
+doc: spi master, all four modes, msb first, eight bits per transfer
+size: 0x1000
+module: apb_spi
+
+pins:
+  - { name: sclk,   dir: output }
+  - { name: mosi,   dir: output }
+  - { name: miso,   dir: input }
+  - { name: ssel_n, dir: output, width: from_config }
+
+irq_port: irq
+
+registers:
+  - { name: CTRL,      offset: 0x00, doc: "[0]EN [1]CPOL [2]CPHA [3]IRQEN" }
+  - { name: STATUS,    offset: 0x04, doc: "[0]BUSY" }
+  - { name: DATA,      offset: 0x08, doc: "write starts a transfer, read returns rx" }
+  - { name: CLKDIV,    offset: 0x0c, doc: "sclk half period in pclk, minus one" }
+  - { name: SSEL,      offset: 0x10, doc: "bit n drives ssel_n[n] low while set" }
+  - { name: INTSTATUS, offset: 0x14, doc: "read pending, write one to clear" }
+
+bits:
+  CTRL:
+    EN: 0
+    CPOL: 1
+    CPHA: 2
+    IRQEN: 3
+  STATUS:
+    BUSY: 0

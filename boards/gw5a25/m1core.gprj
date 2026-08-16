@@ -17,6 +17,9 @@
         <File path="../../rtl/periph/ahb_gpio.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/periph/apb_uart.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/periph/apb_timer.v" type="file.verilog" enable="1"/>
+        <File path="../../rtl/periph/apb_spi.v" type="file.verilog" enable="1"/>
+        <File path="../../rtl/periph/apb_i2c.v" type="file.verilog" enable="1"/>
+        <File path="../../rtl/periph/apb_rtc.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/mcu/ahb_apb_bridge.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/mcu/m1core_apb.v" type="file.verilog" enable="1"/>
         <File path="../../rtl/mcu/m1core_mcu.v" type="file.verilog" enable="1"/>

@@ -203,12 +203,19 @@ new block is at fault.
 python3 tools/m1core_config.py [boards/gw5a25/mcu.yaml]
 ```
 
-Same job as Gowin's "Gowin EMPU M1" dialog and the same shape: general settings
-on top, then a block diagram with the core, the AHB band and the APB band.
-Click an instantiated block to edit its base address, IRQ and width; click a
-dashed one to add that peripheral; the greyed blocks are the ones Gowin offers
-that m1core does not implement yet. **Save and Generate** writes `mcu.yaml` and
-runs the same four outputs `make checkgen` verifies.
+Same job as Gowin's "Gowin EMPU M1" dialog: general settings on top, then a
+block diagram with the core, the AHB band, the APB band, and a band for the
+expansion windows. Click a block to edit its base address, IRQ and width. The
+**Add** toolbar under the diagram adds a peripheral or an expansion window.
+**Save and Generate** writes `mcu.yaml` and runs the same outputs `make
+checkgen` verifies.
+
+The diagram deliberately shows only what exists. An earlier version doubled as
+the palette, offering every available type as a dashed block on its bus, and a
+row ran off the edge of the window — which pushed the expansion windows out of
+sight, the opposite of showing them. Adding moved to the toolbar, and the
+expansion windows got a band of their own rather than trailing the end of a
+peripheral row.
 
 Three properties are worth keeping:
 
@@ -228,6 +235,69 @@ own line and regenerates only the peripherals block, re-attaching the comment
 lines above each entry by peripheral name. `make checkyaml` reads the file,
 writes it back unchanged and requires the bytes to be identical, which is the
 whole safety argument for editing in place.
+
+## The standard map
+
+`tools/standard-map.yaml` is Gowin's eMPU M1 layout, copied from their own
+`GOWIN_M1.h`. Every base address and interrupt number comes from there, so a
+driver written against their core works here at the same addresses and m1kern's
+target layer ports over without an address change.
+
+Two things follow from treating it as a contract rather than a default.
+
+**The header emits all of it, whatever a build contains.** Every base address,
+every register struct, and the full 32-entry interrupt map are defined even for
+blocks this build does not have, so BSP and application code compiles once
+against the standard layout. What is actually present is reported alongside as
+`M1CORE_HAS_<name>`, because a read of an absent peripheral returns zero rather
+than faulting and that is worth being able to check.
+
+**How many of each type exist is fixed by the map.** There are two UARTs
+because the map has `UART0` and `UART1`. A third has no standard base, no
+standard interrupt and no name in the header contract, so `validate()` rejects
+it and the configurator greys out the button. The way to add more is an APB
+expansion window, where the block gets an address of its own and is understood
+to be yours rather than standard.
+
+Writing this map down caught a placement error: the RTC had been put at
+`0x5000_2000`, which is Gowin's DUALTIMER. It is at `0x5000_6000`.
+
+m1kern's `M1CORE.h` is generated from the same file with `--cmsis-header`,
+using Gowin's `UART_TypeDef` / `GPIO_TypeDef` struct names so its drivers
+compile unchanged. `make checkgen` covers it, so the two BSPs cannot drift.
+
+## Peripherals
+
+| Type | Bus | Module | Pins | Notes |
+| --- | --- | --- | --- | --- |
+| gpio | AHB | `ahb_gpio` | `gpio_o[width]` | data/dir with atomic set and clear |
+| uart | APB | `apb_uart` | `rxd`, `txd` | CMSDK layout |
+| timer | APB | `apb_timer` | none | CMSDK layout, down counter |
+| rtc | APB | `apb_rtc` | none | prescaled tick counter with a match interrupt |
+| spi | APB | `apb_spi` | `sclk`, `mosi`, `miso`, `ssel_n[width]` | master, all four modes, MSB first |
+| i2c | APB | `apb_i2c` | `scl`, `sda` (open drain) | single master, start/byte/stop per command |
+
+Adding one is three files and no GUI change: the RTL in `rtl/periph/`, a
+`tools/peripherals/<type>.yaml`, and an entry in `sim/Makefile` plus the
+`.gprj`. The configurator picks it up from the YAML.
+
+`tb/tb_periph.sv` unit-tests SPI, I2C and RTC on their own APB ports rather
+than through the CPU. Going through the core would make every register access
+hundreds of cycles and would be re-testing the fabric; a shifting error inside
+SPI is far easier to read at the block. SPI is tested with MISO tied to MOSI,
+so a received byte equal to the transmitted one proves both directions shift on
+the right edges — and that holds in all four modes, which makes it a real check
+of CPOL and CPHA rather than of mode 0 only. I2C is tested against a slave
+model that acks its own address, stores a byte and returns one.
+
+Two notes on what these blocks deliberately do not do. SPI is MSB first only:
+LSB first doubles every shift and sample case for a mode almost no device uses.
+SPI chip selects are driven straight from a register rather than automatically
+around each transfer, because a real device usually needs one select held
+across several bytes and hardware that drops it every byte cannot express that.
+
+I2C's pins are open drain, so a board carrying them needs pull-ups; nothing in
+the design drives either line high. Clock stretching is honoured.
 
 ## Expansion windows
 
@@ -260,9 +330,25 @@ board file, so what it tests is the generator rather than the one configuration
 that happens to be checked in. It also checks the top of the window decodes, an
 address one past the window does not, and an unmapped read still returns zero.
 
-The APB window is not implemented: it needs its own `ahb_apb_bridge` behind the
-decode and nothing generates one yet. `validate()` rejects enabling it rather
-than emitting a decode with nothing behind it, which is the failure above.
+Both buses work. They are generated differently, on purpose:
+
+- **AHB** gets one fabric slave per window, each brought out as a full AHB-Lite
+  slave interface. Six windows of 16 MB.
+- **APB** gets *one* fabric slave for the whole 16 MB reserved window, with an
+  `ahb_apb_bridge` behind it and a `psel` decoded per slot. Sixteen windows of
+  1 MB. Sixteen fabric slots would grow the decode and read mux that the bridge
+  exists to keep small, and the slots share the address and data phase anyway,
+  which is exactly how APB works.
+
+The full reserved APB window is decoded even when only some slots are enabled,
+and an unselected slot returns `pready` high with zero data. Without that, an
+access to an empty slot would wait forever on a `pready` that never arrives and
+hang the bus rather than read zero. `tb_exp` covers that case explicitly, along
+with slot decode, an offset within a slot, and one slot not answering for
+another.
+
+This is the shape a Cheby generated register map attaches in: one block per
+slot, differing only in `psel`.
 
 ## The AHB fabric is generated
 

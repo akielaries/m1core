@@ -34,6 +34,25 @@ mcu:
       base: 0x50000000
       irq: 2
 
+    - type: rtc
+      name: rtc
+      bus: apb
+      base: 0x50006000
+      irq: 6
+
+    - type: spi
+      name: spi
+      bus: apb
+      base: 0x5000B000
+      irq: 7
+      width: 1
+
+    - type: i2c
+      name: i2c
+      bus: apb
+      base: 0x5000A000
+      irq: 5
+
     - type: uart
       name: uart0
       bus: apb
@@ -41,5 +60,5 @@ mcu:
       irq: 0
 
   expansion:
-    apb: { base: 0x60000000, slots: 16, size_kb: 1024,  enabled: 0 }
+    apb: { base: 0x60000000, slots: 16, size_kb: 1024,  enabled: 2 }
     ahb: { base: 0x80000000, slots: 6,  size_kb: 16384, enabled: 1 }

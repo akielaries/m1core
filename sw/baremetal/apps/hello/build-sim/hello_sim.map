@@ -81,96 +81,120 @@ LOAD build-sim/startup.o
 LOAD build-sim/uart.o
 LOAD /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a
 
-.isr_vector     0x00000000       0x60
+.isr_vector     0x00000000       0xc0
  *(.isr_vector)
- .isr_vector    0x00000000       0x60 build-sim/startup.o
+ .isr_vector    0x00000000       0xc0 build-sim/startup.o
                 0x00000000                vector_table
 
-.text           0x00000060      0x15c
+.text           0x000000c0      0x15c
  *(.text*)
- .text.delay    0x00000060       0x12 build-sim/main.o
- *fill*         0x00000072        0x2 
- .text.main     0x00000074       0x54 build-sim/main.o
-                0x00000074                main
+ .text.delay    0x000000c0       0x12 build-sim/main.o
+ *fill*         0x000000d2        0x2 
+ .text.main     0x000000d4       0x54 build-sim/main.o
+                0x000000d4                main
  .text.Default_Handler
-                0x000000c8        0x2 build-sim/startup.o
-                0x000000c8                HardFault_Handler
-                0x000000c8                TIMER0_Handler
-                0x000000c8                SysTick_Handler
-                0x000000c8                PendSV_Handler
-                0x000000c8                NMI_Handler
-                0x000000c8                TIMER1_Handler
-                0x000000c8                RTC_Handler
-                0x000000c8                UARTOVF_Handler
-                0x000000c8                UART1_Handler
-                0x000000c8                I2C_Handler
-                0x000000c8                SVC_Handler
-                0x000000c8                UART0_Handler
-                0x000000c8                GPIO0_Handler
- *fill*         0x000000ca        0x2 
+                0x00000128        0x2 build-sim/startup.o
+                0x00000128                GPIO0_13_Handler
+                0x00000128                EXTINT_1_Handler
+                0x00000128                GPIO0_14_Handler
+                0x00000128                TRNG_Handler
+                0x00000128                HardFault_Handler
+                0x00000128                TIMER0_Handler
+                0x00000128                SysTick_Handler
+                0x00000128                PendSV_Handler
+                0x00000128                NMI_Handler
+                0x00000128                DTimer_Handler
+                0x00000128                EXTINT_2_Handler
+                0x00000128                GPIO0_4_Handler
+                0x00000128                TIMER1_Handler
+                0x00000128                GPIO0_15_Handler
+                0x00000128                RTC_Handler
+                0x00000128                UARTOVF_Handler
+                0x00000128                GPIO0_2_Handler
+                0x00000128                GPIO0_3_Handler
+                0x00000128                GPIO0_9_Handler
+                0x00000128                UART1_Handler
+                0x00000128                I2C_Handler
+                0x00000128                EXTINT_3_Handler
+                0x00000128                GPIO0_6_Handler
+                0x00000128                SVC_Handler
+                0x00000128                GPIO0_1_Handler
+                0x00000128                GPIO0_5_Handler
+                0x00000128                GPIO0_0_Handler
+                0x00000128                GPIO0_12_Handler
+                0x00000128                GPIO0_11_Handler
+                0x00000128                UART0_Handler
+                0x00000128                GPIO0_8_Handler
+                0x00000128                ENT_Handler
+                0x00000128                CAN_Handler
+                0x00000128                GPIO0_7_Handler
+                0x00000128                GPIO0_10_Handler
+                0x00000128                GPIO0_Handler
+                0x00000128                EXTINT_0_Handler
+ *fill*         0x0000012a        0x2 
  .text.Reset_Handler
-                0x000000cc       0x10 build-sim/startup.o
-                0x000000cc                Reset_Handler
+                0x0000012c       0x10 build-sim/startup.o
+                0x0000012c                Reset_Handler
  .text.reset_main
-                0x000000dc       0x3c build-sim/startup.o
-                0x000000dc                reset_main
+                0x0000013c       0x3c build-sim/startup.o
+                0x0000013c                reset_main
  .text.uart_init
-                0x00000118       0x10 build-sim/uart.o
-                0x00000118                uart_init
+                0x00000178       0x10 build-sim/uart.o
+                0x00000178                uart_init
  .text.uart_putc
-                0x00000128       0x14 build-sim/uart.o
-                0x00000128                uart_putc
+                0x00000188       0x14 build-sim/uart.o
+                0x00000188                uart_putc
  .text.uart_puts
-                0x0000013c       0x24 build-sim/uart.o
-                0x0000013c                uart_puts
+                0x0000019c       0x24 build-sim/uart.o
+                0x0000019c                uart_puts
  .text.uart_puthex
-                0x00000160       0x30 build-sim/uart.o
-                0x00000160                uart_puthex
+                0x000001c0       0x30 build-sim/uart.o
+                0x000001c0                uart_puthex
  *(.rodata*)
  .rodata.main.str1.4
-                0x00000190       0x16 build-sim/main.o
+                0x000001f0       0x16 build-sim/main.o
                                  0x1a (size before relaxing)
- *fill*         0x000001a6        0x2 
+ *fill*         0x00000206        0x2 
  .rodata.digits.0
-                0x000001a8       0x11 build-sim/uart.o
-                0x000001bc                        . = ALIGN (0x4)
- *fill*         0x000001b9        0x3 
+                0x00000208       0x11 build-sim/uart.o
+                0x0000021c                        . = ALIGN (0x4)
+ *fill*         0x00000219        0x3 
 
-.glue_7         0x000001bc        0x0
- .glue_7        0x000001bc        0x0 linker stubs
+.glue_7         0x0000021c        0x0
+ .glue_7        0x0000021c        0x0 linker stubs
 
-.glue_7t        0x000001bc        0x0
- .glue_7t       0x000001bc        0x0 linker stubs
+.glue_7t        0x0000021c        0x0
+ .glue_7t       0x0000021c        0x0 linker stubs
 
-.vfp11_veneer   0x000001bc        0x0
- .vfp11_veneer  0x000001bc        0x0 linker stubs
+.vfp11_veneer   0x0000021c        0x0
+ .vfp11_veneer  0x0000021c        0x0 linker stubs
 
-.v4_bx          0x000001bc        0x0
- .v4_bx         0x000001bc        0x0 linker stubs
+.v4_bx          0x0000021c        0x0
+ .v4_bx         0x0000021c        0x0 linker stubs
 
-.iplt           0x000001bc        0x0
- .iplt          0x000001bc        0x0 build-sim/main.o
+.iplt           0x0000021c        0x0
+ .iplt          0x0000021c        0x0 build-sim/main.o
 
-.rel.dyn        0x000001bc        0x0
- .rel.iplt      0x000001bc        0x0 build-sim/main.o
+.rel.dyn        0x0000021c        0x0
+ .rel.iplt      0x0000021c        0x0 build-sim/main.o
 
 .results        0x20000000        0x0
                 0x20000000                        . = ALIGN (0x4)
  *(.results)
                 0x20000000                        . = ALIGN (0x4)
-                0x000001bc                        _sidata = LOADADDR (.data)
+                0x0000021c                        _sidata = LOADADDR (.data)
 
-.data           0x20000000        0x0 load address 0x000001bc
+.data           0x20000000        0x0 load address 0x0000021c
                 0x20000000                        . = ALIGN (0x4)
                 0x20000000                        _sdata = .
  *(.data*)
                 0x20000000                        . = ALIGN (0x4)
                 0x20000000                        _edata = .
 
-.igot.plt       0x20000000        0x0 load address 0x000001bc
+.igot.plt       0x20000000        0x0 load address 0x0000021c
  .igot.plt      0x20000000        0x0 build-sim/main.o
 
-.bss            0x20000000        0x0 load address 0x000001bc
+.bss            0x20000000        0x0 load address 0x0000021c
                 0x20000000                        . = ALIGN (0x4)
                 0x20000000                        _sbss = .
  *(.bss*)

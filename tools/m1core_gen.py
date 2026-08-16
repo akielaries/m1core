@@ -44,6 +44,27 @@ def load_mcu(path):
     return doc["mcu"]
 
 
+STD_MAP = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                       "standard-map.yaml")
+
+
+def load_all_types():
+    """every peripheral type the generator can emit, instantiated or not"""
+    out = {}
+    for fn in sorted(os.listdir(PERIPH_DIR)):
+        if fn.endswith(".yaml"):
+            with open(os.path.join(PERIPH_DIR, fn)) as f:
+                t = yaml.safe_load(f)
+            out[t["type"]] = t
+    return out
+
+
+def load_standard():
+    """gowin's address and interrupt map, see tools/standard-map.yaml"""
+    with open(STD_MAP) as f:
+        return yaml.safe_load(f)
+
+
 def load_periph_types(mcu):
     types = {}
     for p in mcu.get("peripherals", []):
@@ -124,6 +145,28 @@ def validate(mcu, types):
                 f"{p['name']}: the one ahb slot in rtl/mcu/ahb_fabric.v is wired "
                 f"as gpio, so type '{p['type']}' cannot go there yet")
 
+    # how many of each type exist is part of the standard map, not a free
+    # choice: there are two uarts because gowin's map has UART0 and UART1, and
+    # a third has no standard base, no standard interrupt and no name in the
+    # header contract. the apb expansion windows are the way to add more
+    std = load_standard()
+    caps = {}
+    for e in std["peripherals"]:
+        if e.get("type"):
+            caps[e["type"]] = caps.get(e["type"], 0) + 1
+    have = {}
+    for p in periphs:
+        have[p["type"]] = have.get(p["type"], 0) + 1
+    for t, n in sorted(have.items()):
+        limit = caps.get(t, 0)
+        if n > limit:
+            names = ", ".join(e["name"] for e in std["peripherals"]
+                              if e.get("type") == t)
+            errors.append(
+                f"{n} {t} instances, but the standard map has {limit} "
+                f"({names}). attach further blocks in an apb expansion window "
+                f"instead, where they get an address of their own")
+
     # the apb expansion window needs its own ahb to apb bridge, which nothing
     # generates yet. say so rather than emitting a decode with no bridge behind
     # it, which is the exact failure this window already had once
@@ -135,10 +178,11 @@ def validate(mcu, types):
             errors.append(f"expansion.{bus}: enabled {n} exceeds the {slots} "
                           f"slots the address map reserves")
         if bus == "apb" and n:
-            errors.append(
-                "expansion.apb: not implemented. the window needs its own "
-                "ahb_apb_bridge and nothing generates one yet, so enabling it "
-                "would decode an address with no bridge behind it")
+            total = slots * int(cfg.get("size_kb", 0)) * 1024
+            if total & (total - 1):
+                errors.append(
+                    f"expansion.apb: slots x size_kb is {total:#x}, which is not "
+                    f"a power of two, so the window cannot be decoded")
 
     if not mcu.get("clock", {}).get("hz"):
         errors.append("mcu.clock.hz is required: software cannot read it back")
@@ -164,7 +208,7 @@ REGION_DEFS = [
 ]
 
 
-def gen_header(mcu, types, source):
+def gen_header(mcu, types, source, cmsis=False):
     o = []
     w = o.append
 
@@ -182,6 +226,15 @@ def gen_header(mcu, types, source):
     w("")
     w("#include <stdint.h>")
     w("")
+    if cmsis:
+        w("/* processor and core peripheral configuration. core_cm1.h supplies")
+        w("   SCB, SysTick and the NVIC helpers from these */")
+        w("#define __CM1_REV              0x0100U")
+        w("#define __NVIC_PRIO_BITS       2U   /* armv6-m implements two */")
+        w("#define __Vendor_SysTickConfig 0U   /* use the CMSIS SysTick_Config */")
+        w("#define __MPU_PRESENT          0U")
+        w("#define __FPU_PRESENT          0U")
+        w("")
 
     clk = mcu["clock"]
     w("/* the fabric clock. software cannot read this back, there is no PLL to")
@@ -189,78 +242,123 @@ def gen_header(mcu, types, source):
     w(f"#define SYSTEM_CLOCK_HZ  {clk['hz']}u")
     w("")
 
+    std = load_standard()
+
     w("/* address regions */")
-    for name, addr in REGION_DEFS:
-        w(f"#define {name:<16} {addr:#010x}u")
-    # only the enabled slots get an address define. emitting the window base
-    # unconditionally is what made these windows look real when the fabric
-    # decoded nothing there and an access returned zero with no error
+    for name, addr in std["regions"].items():
+        w(f"#define {name + '_BASE':<18} {addr:#010x}u")
+    w("")
+
+    # every enabled expansion window, which unlike the regions above is per
+    # build: the fabric only decodes the ones that are turned on
     for bus in ("apb", "ahb"):
         slots = expansion_slots(mcu, bus)
         if not slots:
             continue
-        w(f"/* {bus} expansion windows, decoded by the fabric and brought out")
-        w(f"   on the mcu top for user logic */")
+        w(f"/* {bus} expansion windows brought out on the mcu top for user logic */")
         for name, base, size in slots:
-            w(f"#define {name.upper() + '_BASE':<16} {base:#010x}u"
+            w(f"#define {name.upper() + '_BASE':<18} {base:#010x}u"
               f"   /* {_size_str(size)} */")
         w("")
 
     periphs = mcu.get("peripherals", [])
+    by_name = {p["name"].upper(): p for p in periphs}
 
-    w("/* peripheral instances */")
-    for p in periphs:
-        w(f"#define {p['name'].upper() + '_BASE':<16} {p['base']:#010x}u")
+    w("/*")
+    w(" * the standard peripheral map, from tools/standard-map.yaml, which is")
+    w(" * gowin's empu m1 layout. all of it is defined whatever this build")
+    w(" * actually contains, so bsp and application code can be written once")
+    w(" * against the standard addresses.")
+    w(" *")
+    w(" * M1CORE_HAS_<name> says what is really in this build. a read of a")
+    w(" * peripheral that is not present returns zero rather than faulting, so")
+    w(" * check the macro if you need to know.")
+    w(" */")
+    for e in std["peripherals"]:
+        w(f"#define {e['name'] + '_BASE':<18} {e['base']:#010x}u")
+    w("")
+    for e in std["peripherals"]:
+        w(f"#define {'M1CORE_HAS_' + e['name']:<22} "
+          f"{1 if e['name'] in by_name else 0}")
     w("")
 
-    irq_periphs = [p for p in periphs if p.get("irq") is not None]
-    if irq_periphs:
-        w("/* interrupt numbers. numbering follows gowin's empu m1 so m1kern's")
-        w("   target layer ports across unchanged */")
-        w("typedef enum {")
-        rows = sorted(irq_periphs, key=lambda p: p["irq"])
-        for i, p in enumerate(rows):
-            comma = "," if i < len(rows) - 1 else ""
-            w(f"  {p['name'].upper() + '_IRQn':<12} = {p['irq']}{comma}")
-        w("} IRQn_Type;")
+    # instances this build has that are not part of the standard map still need
+    # their address, or a second uart at a chosen base is unreachable from C
+    extra = [p for p in periphs if p["name"].upper() not in
+             {e["name"] for e in std["peripherals"]}]
+    if extra:
+        w("/* instances of this build that are outside the standard map */")
+        for p in extra:
+            w(f"#define {p['name'].upper() + '_BASE':<18} {p['base']:#010x}u")
         w("")
 
-    emitted = set()
-    for p in periphs:
-        t = types[p["type"]]
-        if t["struct"] in emitted:
-            continue
-        emitted.add(t["struct"])
-        w(f"/* {t.get('doc', p['type'])} */")
+    w("/* the standard interrupt map. numbering is gowin's, so a handler name")
+    w("   means the same thing on either core */")
+    w("typedef enum {")
+    w("  NonMaskableInt_IRQn = -14,")
+    w("  HardFault_IRQn      = -13,")
+    w("  SVCall_IRQn         =  -5,")
+    w("  PendSV_IRQn         =  -2,")
+    w("  SysTick_IRQn        =  -1,")
+    rows = std["irqs"]
+    for i, e in enumerate(rows):
+        comma = "," if i < len(rows) - 1 else ""
+        w(f"  {e['name'] + '_IRQn':<16} = {e['num']:>3}{comma}")
+    w("} IRQn_Type;")
+    w("")
+    if cmsis:
+        # has to come after IRQn_Type, core_cm1.h uses it
+        w('#include "core_cm1.h"')
+        w("")
+
+    # every register layout the generator knows, whether or not this build has
+    # one, so a driver compiles against the header on any configuration
+    all_types = load_all_types()
+
+    # gowin names these UART_TypeDef, GPIO_TypeDef and so on, and a driver
+    # written against their core is exactly what should compile here unchanged,
+    # so the cmsis variant uses their names rather than this tree's
+    def sname(tname):
+        return (f"{tname.upper()}_TypeDef" if cmsis
+                else all_types[tname]["struct"])
+
+    for tname in sorted(all_types):
+        t = all_types[tname]
+        w(f"/* {t.get('doc', tname)} */")
         w("typedef struct {")
         width = max(len(r["name"]) for r in t["registers"])
         for r in t["registers"]:
             doc = f"  /* {r['offset']:#04x} {r['doc']} */" if r.get("doc") else ""
             w(f"  volatile uint32_t {r['name'] + ';':<{width + 1}}{doc}")
-        w(f"}} {t['struct']};")
+        w(f"}} {sname(tname)};")
         w("")
 
     w("/* instance pointers */")
-    for p in periphs:
-        t = types[p["type"]]
-        w(f"#define {p['name'].upper():<6} (({t['struct']} *){p['name'].upper()}_BASE)")
+    for e in std["peripherals"]:
+        if e.get("type") in all_types:
+            w(f"#define {e['name']:<10} (({sname(e['type'])} *){e['name']}_BASE)")
+    for p in extra:
+        w(f"#define {p['name'].upper():<10} "
+          f"(({sname(p['type'])} *){p['name'].upper()}_BASE)")
     w("")
 
     bit_lines = []
-    for p in periphs:
-        t = types[p["type"]]
-        if t["struct"] in emitted and t.get("bits"):
-            for reg, bits in t["bits"].items():
-                for bit, pos in bits.items():
-                    prefix = f"{p['type'].upper()}_{reg}_{bit}"
-                    line = f"#define {prefix:<24} (1u << {pos})"
-                    if line not in bit_lines:
-                        bit_lines.append(line)
+    for tname in sorted(all_types):
+        t = all_types[tname]
+        for reg, bits in (t.get("bits") or {}).items():
+            for bit, pos in bits.items():
+                prefix = f"{tname.upper()}_{reg}_{bit}"
+                line = f"#define {prefix:<24} (1u << {pos})"
+                if line not in bit_lines:
+                    bit_lines.append(line)
     if bit_lines:
         w("/* register bits */")
         o.extend(bit_lines)
         w("")
 
+    if cmsis:
+        w('#include "system_M1CORE.h"')
+        w("")
     w("#endif /* M1CORE_H */")
     return "\n".join(o) + "\n"
 
@@ -311,7 +409,9 @@ def gen_apb_rtl(mcu, types, source):
         for i, pin in enumerate(pins):
             last = (p is apb[-1]) and (i == len(pins) - 1)
             comma = "" if last else ","
-            d = "input  wire" if pin["dir"] == "input" else "output wire"
+            d = {"input": "input  wire",
+                 "output": "output wire",
+                 "inout": "inout  wire"}[pin["dir"]]
             w(f"  {d}        {p['name']}_{pin['name']}{comma}")
     w(");")
     w("")
@@ -506,6 +606,14 @@ def ahb_slaves(mcu, types):
     for name, base, size in expansion_slots(mcu, "ahb"):
         slaves.append((name, base, size))
 
+    # the whole apb expansion window is one slave, decoded per slot behind its
+    # own bridge. the full reserved window is decoded even when only some slots
+    # are enabled, so an access to an unused slot completes and reads zero
+    # instead of hanging the bus waiting for a pready that never comes
+    win = apbexp_window(mcu)
+    if win:
+        slaves.append(("apbexp", win[0], win[1]))
+
     slaves.append(("ppb", 0xE0000000, 0x100000))
     return slaves
 
@@ -525,6 +633,14 @@ def expansion_slots(mcu, bus):
     size = int(exp["size_kb"]) * 1024
     base = int(exp["base"])
     return [(f"{bus}exp{i}", base + i * size, size) for i in range(n)]
+
+
+def apbexp_window(mcu):
+    """base and size of the whole apb expansion window, or None if unused"""
+    cfg = mcu.get("expansion", {}).get("apb") or {}
+    if not int(cfg.get("enabled", 0)):
+        return None
+    return int(cfg["base"]), int(cfg["slots"]) * int(cfg["size_kb"]) * 1024
 
 
 def gen_ahb_rtl(mcu, types, source):
@@ -641,6 +757,17 @@ EXP_AHB_PORTS = [
 ]
 
 
+EXP_APB_PORTS = [
+    ("output wire       ", "psel"),
+    ("output wire       ", "penable"),
+    ("output wire       ", "pwrite"),
+    ("output wire [31:0]", "paddr"),
+    ("output wire [31:0]", "pwdata"),
+    ("input  wire [31:0]", "prdata"),
+    ("input  wire       ", "pready"),
+]
+
+
 def gen_mcu_regions(mcu, types, source):
     """the parts of m1core_mcu.v that depend on the mcu description: external
     pin ports, the apb instance pin connections, and the whole bus fabric,
@@ -651,23 +778,106 @@ def gen_mcu_regions(mcu, types, source):
     conns = []
     for p in apb:
         for pin in types[p["type"]].get("pins", []):
-            d = "input  wire" if pin["dir"] == "input" else "output wire"
+            d = {"input": "input  wire",
+                 "output": "output wire",
+                 "inout": "inout  wire"}[pin["dir"]]
             sig = f"{p['name']}_{pin['name']}"
             ports.append(f"  , {d}        {sig}")
             conns.append(f"    , .{sig:<10} ({sig})")
 
     # expansion windows come out as a full slave interface each
-    exp = [n for n, _, _ in expansion_slots(mcu, "ahb")]
-    for name in exp:
+    for name, _, _ in expansion_slots(mcu, "ahb"):
         ports.append(f"  // {name}: ahb-lite expansion window for user logic")
         for d, sig in EXP_AHB_PORTS:
+            ports.append(f"  , {d} {name}_{sig}")
+
+    for name, base, size in expansion_slots(mcu, "apb"):
+        ports.append(f"  // {name}: apb expansion window at {base:#010x}, "
+                     f"{_size_str(size)}")
+        for d, sig in EXP_APB_PORTS:
             ports.append(f"  , {d} {name}_{sig}")
 
     return {
         "periph-ports": ("\n".join(ports) + "\n") if ports else "",
         "apb-pins": ("\n".join(conns) + "\n") if conns else "",
-        "fabric": gen_fabric_inst(mcu, types),
+        "fabric": gen_fabric_inst(mcu, types) + gen_apbexp_inst(mcu),
     }
+
+
+def gen_apbexp_inst(mcu):
+    """the apb expansion window: one bridge, then a select per slot
+
+    the slots share the address and data phase and differ only in psel, which
+    is how apb works and is what keeps sixteen windows to one fabric slot
+    """
+    slots = expansion_slots(mcu, "apb")
+    if not slots:
+        return ""
+
+    cfg = mcu["expansion"]["apb"]
+    size = int(cfg["size_kb"]) * 1024
+    lsb = size.bit_length() - 1
+    idx_w = max(1, (int(cfg["slots"]) - 1).bit_length())
+    msb = lsb + idx_w - 1
+
+    o = []
+    w = o.append
+    w("")
+    w("  // apb expansion window, one bridge shared by every slot")
+    w("  wire        apbexp_psel_w;")
+    w("  wire        apbexp_penable_w;")
+    w("  wire        apbexp_pwrite_w;")
+    w("  wire [31:0] apbexp_paddr_w;")
+    w("  wire [31:0] apbexp_pwdata_w;")
+    w("  reg  [31:0] apbexp_prdata_w;")
+    w("  reg         apbexp_pready_w;")
+    w("")
+    w("  ahb_apb_bridge u_apbexp_bridge (")
+    w("    .clk       (clk),")
+    w("    .rst_n     (rst_n_i),")
+    w("    .hsel      (hsel_apbexp),")
+    w("    .haddr     (haddr),")
+    w("    .hwrite    (hwrite),")
+    w("    .htrans    (htrans),")
+    w("    .hready    (hready),")
+    w("    .hwdata    (hwdata),")
+    w("    .hrdata    (hrdata_apbexp),")
+    w("    .hreadyout (hreadyout_apbexp),")
+    w("    .psel      (apbexp_psel_w),")
+    w("    .penable   (apbexp_penable_w),")
+    w("    .pwrite    (apbexp_pwrite_w),")
+    w("    .paddr     (apbexp_paddr_w),")
+    w("    .pwdata    (apbexp_pwdata_w),")
+    w("    .prdata    (apbexp_prdata_w),")
+    w("    .pready    (apbexp_pready_w)")
+    w("  );")
+    w("")
+    w(f"  wire [{idx_w - 1}:0] apbexp_slot = apbexp_paddr_w[{msb}:{lsb}];")
+    w("")
+    for i, (name, _, _) in enumerate(slots):
+        w(f"  assign {name}_psel    = apbexp_psel_w && "
+          f"(apbexp_slot == {idx_w}'d{i});")
+        w(f"  assign {name}_penable = apbexp_penable_w;")
+        w(f"  assign {name}_pwrite  = apbexp_pwrite_w;")
+        w(f"  assign {name}_paddr   = apbexp_paddr_w;")
+        w(f"  assign {name}_pwdata  = apbexp_pwdata_w;")
+    w("")
+    w("  always @(*) begin")
+    w("    case (apbexp_slot)")
+    for i, (name, _, _) in enumerate(slots):
+        w(f"      {idx_w}'d{i}: begin")
+        w(f"        apbexp_prdata_w = {name}_prdata;")
+        w(f"        apbexp_pready_w = {name}_pready;")
+        w(f"      end")
+    w("      // a slot inside the window with nothing attached still has to")
+    w("      // complete, or the access waits on a pready that never arrives")
+    w("      default: begin")
+    w("        apbexp_prdata_w = 32'd0;")
+    w("        apbexp_pready_w = 1'b1;")
+    w("      end")
+    w("    endcase")
+    w("  end")
+    return "\n".join(o) + "\n"
 
 
 def gen_fabric_inst(mcu, types):
@@ -687,6 +897,8 @@ def gen_fabric_inst(mcu, types):
     w("  wire        " + ", ".join(f"hsel_{n}" for n in internal) + ";")
     w("  wire [31:0] " + ", ".join(f"hrdata_{n}" for n in internal) + ";")
     w("  wire        hreadyout_apb;")
+    if "apbexp" in internal:
+        w("  wire        hreadyout_apbexp;")
     w("")
     for name in sorted(exp):
         # the expansion slave sees the same address and data phase the internal
@@ -717,8 +929,8 @@ def gen_fabric_inst(mcu, types):
     for i, n in enumerate(names):
         if n in exp:
             src = f"{n}_hreadyout"
-        elif n == "apb":
-            src = "hreadyout_apb"
+        elif n in ("apb", "apbexp"):
+            src = f"hreadyout_{n}"
         else:
             src = "1'b1"
         comma = "" if i == len(names) - 1 else ","
@@ -752,6 +964,8 @@ def main():
     ap.add_argument("--apb-rtl")
     ap.add_argument("--mcu-rtl")
     ap.add_argument("--ahb-rtl")
+    ap.add_argument("--cmsis-header",
+                    help="same map, cmsis flavoured, for m1kern's target layer")
     ap.add_argument("--check", action="store_true",
                     help="report whether the file on disk is up to date, write nothing")
     args = ap.parse_args()
@@ -773,6 +987,9 @@ def main():
     outputs = []
     if args.header:
         outputs.append((args.header, gen_header(mcu, types, src)))
+    if args.cmsis_header:
+        outputs.append((args.cmsis_header,
+                        gen_header(mcu, types, src, cmsis=True)))
     if args.memmap:
         outputs.append((args.memmap,
                         splice_memmap(args.memmap, gen_memmap(mcu, types, src))))
@@ -783,7 +1000,8 @@ def main():
     if args.mcu_rtl:
         outputs.append((args.mcu_rtl, splice_mcu(args.mcu_rtl, mcu, types, src)))
     if not outputs:
-        print("nothing to do: pass --header, --memmap and/or --apb-rtl", file=sys.stderr)
+        print("nothing to do: pass --header, --memmap and/or --apb-rtl",
+              file=sys.stderr)
         return 1
 
     failed = False

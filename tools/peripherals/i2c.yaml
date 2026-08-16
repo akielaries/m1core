@@ -1,0 +1,36 @@
+# register layout for the m1core i2c master
+type: i2c
+struct: i2c_t
+doc: single master i2c, one start/byte/stop sequence per command
+size: 0x1000
+module: apb_i2c
+
+# open drain, so the pins are inout and the pad is driven low or released. a
+# board using these needs pull ups: nothing here drives either line high
+pins:
+  - { name: scl, dir: inout }
+  - { name: sda, dir: inout }
+
+irq_port: irq
+
+registers:
+  - { name: CTRL,      offset: 0x00, doc: "[0]EN [1]IRQEN" }
+  - { name: CMD,       offset: 0x04, doc: "[0]START [1]STOP [2]WRITE [3]READ [4]ACK" }
+  - { name: DATA,      offset: 0x08, doc: "byte to send, or the byte received" }
+  - { name: STATUS,    offset: 0x0c, doc: "[0]BUSY [1]RXACK, 1 means not acked" }
+  - { name: CLKDIV,    offset: 0x10, doc: "scl quarter period in pclk, minus one" }
+  - { name: INTSTATUS, offset: 0x14, doc: "read pending, write one to clear" }
+
+bits:
+  CTRL:
+    EN: 0
+    IRQEN: 1
+  CMD:
+    START: 0
+    STOP: 1
+    WRITE: 2
+    READ: 3
+    ACK: 4
+  STATUS:
+    BUSY: 0
+    RXACK: 1

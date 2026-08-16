@@ -19,16 +19,42 @@ void SVC_Handler(void)       __attribute__((weak, alias("Default_Handler")));
 void PendSV_Handler(void)    __attribute__((weak, alias("Default_Handler")));
 void SysTick_Handler(void)   __attribute__((weak, alias("Default_Handler")));
 
-/* external interrupts. numbering matches the mcu description, see
-   docs/memory-map.md. weak so an application defines only what it uses */
-void UART0_Handler(void)     __attribute__((weak, alias("Default_Handler")));
-void UART1_Handler(void)     __attribute__((weak, alias("Default_Handler")));
-void TIMER0_Handler(void)    __attribute__((weak, alias("Default_Handler")));
-void TIMER1_Handler(void)    __attribute__((weak, alias("Default_Handler")));
-void GPIO0_Handler(void)     __attribute__((weak, alias("Default_Handler")));
-void UARTOVF_Handler(void)   __attribute__((weak, alias("Default_Handler")));
-void RTC_Handler(void)       __attribute__((weak, alias("Default_Handler")));
-void I2C_Handler(void)       __attribute__((weak, alias("Default_Handler")));
+/* external interrupts, the full standard map from tools/standard-map.yaml.
+   all thirty two are declared whatever a build contains, so a handler name
+   means the same thing on any configuration and on gowin's core. weak, so
+   an application defines only the ones it uses */
+void UART0_Handler(void)       __attribute__((weak, alias("Default_Handler")));
+void UART1_Handler(void)       __attribute__((weak, alias("Default_Handler")));
+void TIMER0_Handler(void)      __attribute__((weak, alias("Default_Handler")));
+void TIMER1_Handler(void)      __attribute__((weak, alias("Default_Handler")));
+void GPIO0_Handler(void)       __attribute__((weak, alias("Default_Handler")));
+void UARTOVF_Handler(void)     __attribute__((weak, alias("Default_Handler")));
+void RTC_Handler(void)         __attribute__((weak, alias("Default_Handler")));
+void I2C_Handler(void)         __attribute__((weak, alias("Default_Handler")));
+void CAN_Handler(void)         __attribute__((weak, alias("Default_Handler")));
+void ENT_Handler(void)         __attribute__((weak, alias("Default_Handler")));
+void EXTINT_0_Handler(void)    __attribute__((weak, alias("Default_Handler")));
+void DTimer_Handler(void)      __attribute__((weak, alias("Default_Handler")));
+void TRNG_Handler(void)        __attribute__((weak, alias("Default_Handler")));
+void EXTINT_1_Handler(void)    __attribute__((weak, alias("Default_Handler")));
+void EXTINT_2_Handler(void)    __attribute__((weak, alias("Default_Handler")));
+void EXTINT_3_Handler(void)    __attribute__((weak, alias("Default_Handler")));
+void GPIO0_0_Handler(void)     __attribute__((weak, alias("Default_Handler")));
+void GPIO0_1_Handler(void)     __attribute__((weak, alias("Default_Handler")));
+void GPIO0_2_Handler(void)     __attribute__((weak, alias("Default_Handler")));
+void GPIO0_3_Handler(void)     __attribute__((weak, alias("Default_Handler")));
+void GPIO0_4_Handler(void)     __attribute__((weak, alias("Default_Handler")));
+void GPIO0_5_Handler(void)     __attribute__((weak, alias("Default_Handler")));
+void GPIO0_6_Handler(void)     __attribute__((weak, alias("Default_Handler")));
+void GPIO0_7_Handler(void)     __attribute__((weak, alias("Default_Handler")));
+void GPIO0_8_Handler(void)     __attribute__((weak, alias("Default_Handler")));
+void GPIO0_9_Handler(void)     __attribute__((weak, alias("Default_Handler")));
+void GPIO0_10_Handler(void)    __attribute__((weak, alias("Default_Handler")));
+void GPIO0_11_Handler(void)    __attribute__((weak, alias("Default_Handler")));
+void GPIO0_12_Handler(void)    __attribute__((weak, alias("Default_Handler")));
+void GPIO0_13_Handler(void)    __attribute__((weak, alias("Default_Handler")));
+void GPIO0_14_Handler(void)    __attribute__((weak, alias("Default_Handler")));
+void GPIO0_15_Handler(void)    __attribute__((weak, alias("Default_Handler")));
 
 /* armv6-m vector table, 16 system entries then the irqs */
 __attribute__((section(".isr_vector"), used))
@@ -52,6 +78,30 @@ void (*const vector_table[])(void) = {
   UARTOVF_Handler,
   RTC_Handler,
   I2C_Handler,
+  CAN_Handler,
+  ENT_Handler,
+  EXTINT_0_Handler,
+  DTimer_Handler,
+  TRNG_Handler,
+  EXTINT_1_Handler,
+  EXTINT_2_Handler,
+  EXTINT_3_Handler,
+  GPIO0_0_Handler,
+  GPIO0_1_Handler,
+  GPIO0_2_Handler,
+  GPIO0_3_Handler,
+  GPIO0_4_Handler,
+  GPIO0_5_Handler,
+  GPIO0_6_Handler,
+  GPIO0_7_Handler,
+  GPIO0_8_Handler,
+  GPIO0_9_Handler,
+  GPIO0_10_Handler,
+  GPIO0_11_Handler,
+  GPIO0_12_Handler,
+  GPIO0_13_Handler,
+  GPIO0_14_Handler,
+  GPIO0_15_Handler,
 };
 
 /* the C body of reset. entered with a valid stack, see Reset_Handler below */

@@ -31,6 +31,7 @@ __attribute__((section(".results"))) volatile uint32_t results[8];
 #define SYST_RVR    (*(volatile uint32_t *)0xE000E014u)
 #define SYST_CVR    (*(volatile uint32_t *)0xE000E018u)
 
+#define ICSR_PENDSTSET  (1u << 26)
 #define ICSR_PENDSVSET (1u << 28)
 
 static volatile uint32_t systick_count;
@@ -184,6 +185,26 @@ int main(void)
   for (i = 0; i < 1000u && pendsv_count == 0u; i++) {
   }
   check(pendsv_count == 1u);
+
+  /* --- equal priority goes to the lower exception number ---
+     pendsv is exception 14 and systick is 15, so with both pending at the
+     same priority armv6-m takes pendsv first. it was the other way round
+     until the nvic selection became a tree: the old running comparison tested
+     systick first and kept it, and nothing here caught that */
+  order = 0u;
+  systick_count = 0u;
+  pendsv_count = 0u;
+  deep_count = 0u;      /* tracks pendsv_count, a later check compares them */
+  SCS_SHPR3 = (1u << 22) | (1u << 30);     /* both at priority 1 */
+  __asm volatile("cpsid i");
+  SCS_ICSR = ICSR_PENDSVSET | ICSR_PENDSTSET;
+  __asm volatile("cpsie i" ::: "memory");
+  for (i = 0; i < 100000u && (pendsv_count == 0u || systick_count == 0u); i++) {
+  }
+  check(pendsv_count >= 1u);
+  check(systick_count >= 1u);
+  check(order == 2u);
+  SCS_SHPR3 = 0u;
 
   /* --- the stack pointer must come back exactly where it started --- */
   __asm volatile("mrs %0, msp" : "=r"(msp_before));

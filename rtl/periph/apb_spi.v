@@ -68,7 +68,10 @@ module apb_spi #(
   wire ctrl_irqen = ctrl[3];
 
   assign irq    = irq_pending && ctrl_irqen;
-  assign sclk   = sclk_r;
+  // idle at cpol rather than at whatever the last transfer left behind. a
+  // slave samples the idle level, so leaving it wrong between transfers is a
+  // real protocol error and not just a cosmetic one
+  assign sclk   = busy ? sclk_r : ctrl_cpol;
   assign mosi   = shift[7];
   assign ssel_n = ~ssel;
 

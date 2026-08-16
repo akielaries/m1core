@@ -17,3 +17,22 @@ create_clock -name HCLK -period 20 -waveform {0 10} [get_ports {HCLK}]
 // decision should be based on
 // must be one line: gowin's sdc parser does not accept backslash continuation
 create_generated_clock -name clk_sys -source [get_ports {HCLK}] -divide_by 2 [get_nets {clk_sys}]
+
+// the only violation the tool reports is a hold check on the divider flop
+// itself, launch clk_sys and capture HCLK, at -1.367 ns. it is an artifact of
+// where the generated clock is defined: on the net the flop drives, so the
+// tool gives the launch edge no insertion delay while the capture edge on the
+// same physical flop carries HCLK's 1.466 ns. that skew does not exist.
+//
+// nothing else in the design is clocked by HCLK, which the report confirms
+// with "No timing paths to get frequency of HCLK", so no real data crosses
+// this way and cutting the arc loses no coverage
+// must be one line: gowin's sdc parser does not accept backslash continuation
+set_false_path -from [get_clocks {clk_sys}] -to [get_clocks {HCLK}]
+
+// when top.v is built with M1CORE_PLL, clk_sys comes from the pll rather than
+// the divider. swap the two constraints above for the line below, adjusted to
+// whatever the ip generator actually named the output, and drop the false path:
+// the divider flop it exists for is no longer in the design
+//
+// create_clock -name clk_sys -period 33.333 [get_pins {u_pll/clkout}]

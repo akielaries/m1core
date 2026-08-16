@@ -193,43 +193,71 @@ module m1core_nvic (
   // svcall is not included: an svc instruction is synchronous, the cpu takes it
   // directly rather than going through the pending logic
   // ---------------------------------------------------------------------------
-  reg [5:0] sel_num;
-  reg [2:0] sel_prio;
-  reg       sel_valid;
+  // packed one key per candidate, priority above exception number, so a single
+  // unsigned compare picks the winner and the tie break is armv6-m's: equal
+  // priority goes to the lower exception number. a candidate that is not
+  // pending takes the largest key and therefore always loses
+  localparam [8:0] KEY_NONE = 9'h1ff;
 
-  integer k;
+  wire [8:0] key [0:63];
 
-  always @(*) begin
-    sel_valid = 1'b0;
-    sel_num   = 6'd0;
-    sel_prio  = 3'd6;
+  assign key[0] = pend_pendsv
+                ? {({1'b0, prio_pendsv} + 3'd2), EXC_PENDSV}
+                : KEY_NONE;
+  assign key[1] = pend_systick
+                ? {({1'b0, prio_systick} + 3'd2), EXC_SYSTICK}
+                : KEY_NONE;
 
-    // systick, exception 15
-    if (pend_systick && ({1'b0, prio_systick} + 3'd2) < sel_prio) begin
-      sel_valid = 1'b1;
-      sel_num   = EXC_SYSTICK;
-      sel_prio  = {1'b0, prio_systick} + 3'd2;
+  genvar gi;
+  generate
+    for (gi = 0; gi < 32; gi = gi + 1) begin : g_key
+      // the +2 is per candidate and independent, so it costs one level rather
+      // than sitting in a chain
+      assign key[2 + gi] = (irq_pending[gi] && irq_enable[gi])
+                         ? {({1'b0, prio_irq[gi]} + 3'd2), (6'd16 + gi[5:0])}
+                         : KEY_NONE;
     end
-
-    // pendsv, exception 14
-    if (pend_pendsv && ({1'b0, prio_pendsv} + 3'd2) < sel_prio) begin
-      sel_valid = 1'b1;
-      sel_num   = EXC_PENDSV;
-      sel_prio  = {1'b0, prio_pendsv} + 3'd2;
+    for (gi = 34; gi < 64; gi = gi + 1) begin : g_pad
+      assign key[gi] = KEY_NONE;
     end
+  endgenerate
 
-    // external interrupts, lowest number wins a priority tie
-    for (k = 31; k >= 0; k = k - 1) begin
-      if (irq_pending[k] && irq_enable[k] &&
-          (({1'b0, prio_irq[k]} + 3'd2) <= sel_prio)) begin
-        if ((({1'b0, prio_irq[k]} + 3'd2) < sel_prio) || sel_num >= 6'd16) begin
-          sel_valid = 1'b1;
-          sel_num   = 6'd16 + k[5:0];
-          sel_prio  = {1'b0, prio_irq[k]} + 3'd2;
-        end
-      end
+  // six levels of pairwise minimum.
+  //
+  // this replaced a running comparison down the list of thirty four
+  // candidates, where each one tested against the result of the one before it.
+  // place and route reported thirty seven levels of logic on the path out of
+  // here and it was the worst path in the design
+  wire [8:0] r1 [0:31];
+  wire [8:0] r2 [0:15];
+  wire [8:0] r3 [0:7];
+  wire [8:0] r4 [0:3];
+  wire [8:0] r5 [0:1];
+  wire [8:0] r6;
+
+  generate
+    for (gi = 0; gi < 32; gi = gi + 1) begin : g_r1
+      assign r1[gi] = (key[2*gi] <= key[2*gi+1]) ? key[2*gi] : key[2*gi+1];
     end
-  end
+    for (gi = 0; gi < 16; gi = gi + 1) begin : g_r2
+      assign r2[gi] = (r1[2*gi] <= r1[2*gi+1]) ? r1[2*gi] : r1[2*gi+1];
+    end
+    for (gi = 0; gi < 8; gi = gi + 1) begin : g_r3
+      assign r3[gi] = (r2[2*gi] <= r2[2*gi+1]) ? r2[2*gi] : r2[2*gi+1];
+    end
+    for (gi = 0; gi < 4; gi = gi + 1) begin : g_r4
+      assign r4[gi] = (r3[2*gi] <= r3[2*gi+1]) ? r3[2*gi] : r3[2*gi+1];
+    end
+    for (gi = 0; gi < 2; gi = gi + 1) begin : g_r5
+      assign r5[gi] = (r4[2*gi] <= r4[2*gi+1]) ? r4[2*gi] : r4[2*gi+1];
+    end
+  endgenerate
+
+  assign r6 = (r5[0] <= r5[1]) ? r5[0] : r5[1];
+
+  wire       sel_valid = (r6 != KEY_NONE);
+  wire [2:0] sel_prio  = sel_valid ? r6[8:6] : 3'd6;
+  wire [5:0] sel_num   = sel_valid ? r6[5:0] : 6'd0;
 
   // registered rather than combinational.
   //

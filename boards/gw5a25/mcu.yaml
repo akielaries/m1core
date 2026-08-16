@@ -60,6 +60,15 @@ mcu:
       base: 0x50000000
       irq: 2
 
+    # no pins, so this costs the board nothing. spi and i2c are deliberately
+    # not here: both need real pins, so add them in the configurator at the
+    # same time as the pins.cst entries and the top.v wiring
+    - type: rtc
+      name: rtc
+      bus: apb
+      base: 0x50006000
+      irq: 6
+
     - type: uart
       name: uart0
       bus: apb

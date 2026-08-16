@@ -149,8 +149,36 @@ this only halves an already modest instruction rate, and 25 MHz is still 5x a
 typical probe's SWD clock, comfortably inside the phy's "at least 4x SWCLK"
 requirement.
 
-The real fix is to register the decode so `ST_EXEC` stops being a single
-combinational cone. Once that is done the divider can come out.
+**Measured, from `impl/pnr/*.timing_paths`.** Before the nvic selection became a
+tree: Fmax 25.697 MHz, 37 logic levels, worst slack +1.085 ns, and one hold
+violation. After: **Fmax 33.394 MHz, 14 logic levels, +10.055 ns, no
+violations.**
+
+The first diagnosis here was wrong twice, and both mistakes are worth keeping.
+
+`ST_EXEC` was not the limit. The report showed the worst path leaving the nvic
+through roughly thirty levels of priority selection, into an ICSR read and from
+there into the register file. That selection was a running comparison down
+thirty four candidates, each testing against the result of the one before, so
+it could not be parallelised. It is a balanced tree of pairwise minimums now.
+
+Then, having found that, the prediction was that fixing it would buy almost
+nothing, because the next path down was the core decode one at 38.474 ns
+against the nvic path's 38.851. That was reasoning about the two as if they
+were independent. They were not: on the same core path afterwards, **cell delay
+fell from 15.067 ns to 5.581 ns while routing barely moved**, because the adder
+remapped onto the dedicated carry chain (0.050 ns per stage) instead of about
+twenty three generic LUTs (0.46-0.53 ns each). Removing the large cone freed
+enough congestion for the mapper to do that. Timing work on a congested device
+is not a sum of independent paths.
+
+**Routing is now the whole problem: 80% of the critical path is wire**
+(23.925 ns route against 5.581 ns cell), and the high fanout list is
+`state[1]` at 770 loads, `state[2]` at 535, `inst[6]` at 507. Depth is no
+longer what to attack.
+
+There is 10 ns of slack at 25 MHz. The /2 divider could come out in favour of a
+pll at around 33 MHz with no rtl change at all.
 
 `timing.sdc` deliberately does **not** declare SWCLK as a clock. The phy
 oversamples it and detects edges, so it never reaches a register clock pin and

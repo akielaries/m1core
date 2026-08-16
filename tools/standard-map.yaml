@@ -1,0 +1,82 @@
+# the standard m1core address map, taken from Gowin's eMPU M1
+#
+# every base address and interrupt number here is copied from
+# pub/m1kern/targets/gowin_m1/bsp/system/GOWIN_M1.h, which is Gowin's own
+# device header. the point is that a driver written against their core works
+# against this one at the same addresses, and m1kern's target layer ports over
+# without an address change.
+#
+# this is the map, not the build. the generated header emits all of it whatever
+# a particular board instantiates, so BSP and application code can be written
+# once against the standard layout. what a build actually contains is reported
+# alongside as M1CORE_HAS_<name>, so code that wants to check, can.
+#
+# entries with no `type` are blocks m1core does not implement. they still get
+# their address, because the address is part of the map and squatting on it
+# with something else would break the compatibility this file exists for.
+
+regions:
+  ITCM:           0x00000000
+  DTCM:           0x20000000
+  AHB1PERIPH:     0x40000000
+  APB1PERIPH:     0x50000000
+  APB2PERIPH:     0x60000000    # apb expansion, "apb master 1-16"
+  AHB2PERIPH:     0x80000000    # ahb expansion, "ahb master 1-6"
+
+peripherals:
+  # --- ahb ---
+  - { name: GPIO0,     base: 0x40000000, bus: ahb, type: gpio, irq: 4 }
+  - { name: CAN,       base: 0x45000000, bus: ahb, irq: 8 }
+
+  # --- apb ---
+  - { name: TIMER0,    base: 0x50000000, bus: apb, type: timer, irq: 2 }
+  - { name: TIMER1,    base: 0x50001000, bus: apb, type: timer, irq: 3 }
+  - { name: DUALTIMER, base: 0x50002000, bus: apb, irq: 11 }
+  - { name: SPI_FLASH, base: 0x50003000, bus: apb }
+  - { name: UART0,     base: 0x50004000, bus: apb, type: uart, irq: 0 }
+  - { name: UART1,     base: 0x50005000, bus: apb, type: uart, irq: 1 }
+  - { name: RTC,       base: 0x50006000, bus: apb, type: rtc, irq: 6 }
+  - { name: WDOG,      base: 0x50008000, bus: apb }
+  - { name: SDCARD,    base: 0x50009000, bus: apb }
+  - { name: I2C,       base: 0x5000A000, bus: apb, type: i2c, irq: 7 }
+  # gowin's interrupt map has no spi entry, so spi is polled there. m1core's
+  # apb_spi does have an irq output, it just has no standard number: assign one
+  # from the free numbers if you want to use it
+  - { name: SPI,       base: 0x5000B000, bus: apb, type: spi }
+  - { name: TRNG,      base: 0x5000F000, bus: apb, irq: 12 }
+
+# the full interrupt map, emitted whatever a build contains, so a handler name
+# means the same thing everywhere. gowin numbers these 0..31
+irqs:
+  - { num: 0,  name: UART0 }
+  - { num: 1,  name: UART1 }
+  - { num: 2,  name: TIMER0 }
+  - { num: 3,  name: TIMER1 }
+  - { num: 4,  name: GPIO0 }
+  - { num: 5,  name: UARTOVF }
+  - { num: 6,  name: RTC }
+  - { num: 7,  name: I2C }
+  - { num: 8,  name: CAN }
+  - { num: 9,  name: ENT }
+  - { num: 10, name: EXTINT_0 }
+  - { num: 11, name: DTimer }
+  - { num: 12, name: TRNG }
+  - { num: 13, name: EXTINT_1 }
+  - { num: 14, name: EXTINT_2 }
+  - { num: 15, name: EXTINT_3 }
+  - { num: 16, name: GPIO0_0 }
+  - { num: 17, name: GPIO0_1 }
+  - { num: 18, name: GPIO0_2 }
+  - { num: 19, name: GPIO0_3 }
+  - { num: 20, name: GPIO0_4 }
+  - { num: 21, name: GPIO0_5 }
+  - { num: 22, name: GPIO0_6 }
+  - { num: 23, name: GPIO0_7 }
+  - { num: 24, name: GPIO0_8 }
+  - { num: 25, name: GPIO0_9 }
+  - { num: 26, name: GPIO0_10 }
+  - { num: 27, name: GPIO0_11 }
+  - { num: 28, name: GPIO0_12 }
+  - { num: 29, name: GPIO0_13 }
+  - { num: 30, name: GPIO0_14 }
+  - { num: 31, name: GPIO0_15 }

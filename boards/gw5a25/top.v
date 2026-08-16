@@ -26,30 +26,55 @@ module top (
   input        UART_RX
 );
 
-  // the soc takes an active low reset, the board key is active high
-  wire rst_n = ~HRST;
+  // ---------------------------------------------------------------------------
+  // system clock
+  //
+  // the divider exists because the design could not make 50 MHz. measured Fmax
+  // was 25.697 MHz when the nvic priority selection was a running comparison;
+  // as a balanced tree it is 33.394 MHz, which leaves 10 ns of slack at 25 and
+  // means the divider is now costing real throughput.
+  //
+  // define M1CORE_PLL to drive the mcu from a pll instead. generate it in the
+  // gowin ide, IP Core Generator > Hard Module > CLOCK > PLL:
+  //
+  //   input   50 MHz          (HCLK, ball E2)
+  //   output  30 MHz          measured Fmax is 33.4, so do not sit on it
+  //   name    m1core_pll      or edit the instance below to match
+  //
+  // check the generated module's port names against this instantiation. the ip
+  // generator names them per version and getting them wrong is a build error,
+  // not a silent problem, so it is cheap to find.
+  //
+  // THREE things have to change together or the build is wrong in ways that do
+  // not show up until software runs:
+  //   1. define M1CORE_PLL for this file
+  //   2. mcu.yaml clock.hz, then regenerate. the fabric clock is compiled into
+  //      the header as a constant, so a stale value silently breaks the uart
+  //      baud divisor and the rtc prescale
+  //   3. timing.sdc, see the commented block there
+  // ---------------------------------------------------------------------------
+`ifdef M1CORE_PLL
+  wire clk_sys;
+  wire pll_lock;
 
-  // ---------------------------------------------------------------------------
-  // system clock: 50 MHz divided by two
-  //
-  // the core's critical path runs from an instruction bit through ~17 levels of
-  // decode straight into the register file write port, and at 50 MHz that left
-  // 0.023 ns of slack. it technically met timing, but margin that thin is not
-  // worth trusting across voltage and temperature, and any rtl change flips it
-  // negative.
-  //
-  // halving the clock costs nothing that matters here: the core is multi-cycle,
-  // so this only halves an already modest instruction rate, and 25 MHz is still
-  // 5x the probe's swd clock, well inside the phy's 4x oversampling requirement.
-  //
-  // the real fix is to register the decode so ST_EXEC is not one giant
-  // combinational cone. once that is done this divider can come out
-  // ---------------------------------------------------------------------------
-  reg clk_sys = 1'b0;
+  m1core_pll u_pll (
+    .clkin  (HCLK),
+    .clkout (clk_sys),
+    .lock   (pll_lock)
+  );
+`else
+  wire pll_lock = 1'b1;
+  reg  clk_sys = 1'b0;
 
   always @(posedge HCLK) begin
     clk_sys <= ~clk_sys;
   end
+`endif
+
+  // the soc takes an active low reset, the board key is active high.
+  // also held while a pll is still acquiring: releasing reset onto an unlocked
+  // clock starts the core fetching against a frequency that is still moving
+  wire rst_n = ~HRST & pll_lock;
 
   // preloading the itcm is optional and OFF by default.
   //

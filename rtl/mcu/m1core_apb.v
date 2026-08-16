@@ -32,14 +32,18 @@ module m1core_apb (
   // address decode. the apb window base is stripped by the fabric, so the
   // comparison is on the offset within it
   wire sel_timer0 = (paddr[27:12] == 16'h0000);
+  wire sel_rtc = (paddr[27:12] == 16'h0006);
   wire sel_uart0 = (paddr[27:12] == 16'h0004);
 
   wire [31:0] prdata_timer0;
   wire        pready_timer0;
+  wire [31:0] prdata_rtc;
+  wire        pready_rtc;
   wire [31:0] prdata_uart0;
   wire        pready_uart0;
 
   wire irq_timer0;
+  wire irq_rtc;
   wire irq_uart0;
 
   // read data and ready mux
@@ -50,6 +54,10 @@ module m1core_apb (
       prdata = prdata_timer0;
       pready = pready_timer0;
     end
+    if (sel_rtc) begin
+      prdata = prdata_rtc;
+      pready = pready_rtc;
+    end
     if (sel_uart0) begin
       prdata = prdata_uart0;
       pready = pready_uart0;
@@ -57,7 +65,7 @@ module m1core_apb (
   end
 
   // interrupt vector. unused lines tie low
-  assign irq = {29'd0, irq_timer0, 1'd0, irq_uart0};
+  assign irq = {25'd0, irq_rtc, 3'd0, irq_timer0, 1'd0, irq_uart0};
 
   apb_timer u_timer0 (
     .clk     (clk),
@@ -70,6 +78,19 @@ module m1core_apb (
     .prdata  (prdata_timer0),
     .pready  (pready_timer0),
     .irq     (irq_timer0)
+  );
+
+  apb_rtc u_rtc (
+    .clk     (clk),
+    .rst_n   (rst_n),
+    .psel    (psel && sel_rtc),
+    .penable (penable),
+    .pwrite  (pwrite),
+    .paddr   (paddr),
+    .pwdata  (pwdata),
+    .prdata  (prdata_rtc),
+    .pready  (pready_rtc),
+    .irq     (irq_rtc)
   );
 
   apb_uart u_uart0 (

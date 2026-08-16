@@ -91,103 +91,127 @@ LOAD build/startup.o
 LOAD build/uart.o
 LOAD /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a
 
-.isr_vector     0x00000000       0x60
+.isr_vector     0x00000000       0xc0
  *(.isr_vector)
- .isr_vector    0x00000000       0x60 build/startup.o
+ .isr_vector    0x00000000       0xc0 build/startup.o
                 0x00000000                vector_table
 
-.text           0x00000060      0x290
+.text           0x000000c0      0x290
  *(.text*)
- .text.delay    0x00000060       0x12 build/main.o
- *fill*         0x00000072        0x2 
- .text.main     0x00000074       0x5c build/main.o
-                0x00000074                main
- .text.Default_Handler
-                0x000000d0        0x2 build/startup.o
-                0x000000d0                HardFault_Handler
-                0x000000d0                TIMER0_Handler
-                0x000000d0                SysTick_Handler
-                0x000000d0                PendSV_Handler
-                0x000000d0                NMI_Handler
-                0x000000d0                TIMER1_Handler
-                0x000000d0                RTC_Handler
-                0x000000d0                UARTOVF_Handler
-                0x000000d0                UART1_Handler
-                0x000000d0                I2C_Handler
-                0x000000d0                SVC_Handler
-                0x000000d0                UART0_Handler
-                0x000000d0                GPIO0_Handler
+ .text.delay    0x000000c0       0x12 build/main.o
  *fill*         0x000000d2        0x2 
+ .text.main     0x000000d4       0x5c build/main.o
+                0x000000d4                main
+ .text.Default_Handler
+                0x00000130        0x2 build/startup.o
+                0x00000130                GPIO0_13_Handler
+                0x00000130                EXTINT_1_Handler
+                0x00000130                GPIO0_14_Handler
+                0x00000130                TRNG_Handler
+                0x00000130                HardFault_Handler
+                0x00000130                TIMER0_Handler
+                0x00000130                SysTick_Handler
+                0x00000130                PendSV_Handler
+                0x00000130                NMI_Handler
+                0x00000130                DTimer_Handler
+                0x00000130                EXTINT_2_Handler
+                0x00000130                GPIO0_4_Handler
+                0x00000130                TIMER1_Handler
+                0x00000130                GPIO0_15_Handler
+                0x00000130                RTC_Handler
+                0x00000130                UARTOVF_Handler
+                0x00000130                GPIO0_2_Handler
+                0x00000130                GPIO0_3_Handler
+                0x00000130                GPIO0_9_Handler
+                0x00000130                UART1_Handler
+                0x00000130                I2C_Handler
+                0x00000130                EXTINT_3_Handler
+                0x00000130                GPIO0_6_Handler
+                0x00000130                SVC_Handler
+                0x00000130                GPIO0_1_Handler
+                0x00000130                GPIO0_5_Handler
+                0x00000130                GPIO0_0_Handler
+                0x00000130                GPIO0_12_Handler
+                0x00000130                GPIO0_11_Handler
+                0x00000130                UART0_Handler
+                0x00000130                GPIO0_8_Handler
+                0x00000130                ENT_Handler
+                0x00000130                CAN_Handler
+                0x00000130                GPIO0_7_Handler
+                0x00000130                GPIO0_10_Handler
+                0x00000130                GPIO0_Handler
+                0x00000130                EXTINT_0_Handler
+ *fill*         0x00000132        0x2 
  .text.Reset_Handler
-                0x000000d4       0x10 build/startup.o
-                0x000000d4                Reset_Handler
+                0x00000134       0x10 build/startup.o
+                0x00000134                Reset_Handler
  .text.reset_main
-                0x000000e4       0x3c build/startup.o
-                0x000000e4                reset_main
+                0x00000144       0x3c build/startup.o
+                0x00000144                reset_main
  .text.uart_init
-                0x00000120       0x24 build/uart.o
-                0x00000120                uart_init
+                0x00000180       0x24 build/uart.o
+                0x00000180                uart_init
  .text.uart_putc
-                0x00000144       0x14 build/uart.o
-                0x00000144                uart_putc
+                0x000001a4       0x14 build/uart.o
+                0x000001a4                uart_putc
  .text.uart_puts
-                0x00000158       0x24 build/uart.o
-                0x00000158                uart_puts
+                0x000001b8       0x24 build/uart.o
+                0x000001b8                uart_puts
  .text.uart_puthex
-                0x0000017c       0x30 build/uart.o
-                0x0000017c                uart_puthex
- .text          0x000001ac      0x114 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
-                0x000001ac                __udivsi3
-                0x000001ac                __aeabi_uidiv
-                0x000002b8                __aeabi_uidivmod
- .text          0x000002c0        0x4 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
-                0x000002c0                __aeabi_ldiv0
-                0x000002c0                __aeabi_idiv0
+                0x000001dc       0x30 build/uart.o
+                0x000001dc                uart_puthex
+ .text          0x0000020c      0x114 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_udivsi3.o)
+                0x0000020c                __udivsi3
+                0x0000020c                __aeabi_uidiv
+                0x00000318                __aeabi_uidivmod
+ .text          0x00000320        0x4 /usr/lib/gcc/arm-none-eabi/15/thumb/v6-m/nofp/libgcc.a(_dvmd_tls.o)
+                0x00000320                __aeabi_ldiv0
+                0x00000320                __aeabi_idiv0
  *(.rodata*)
  .rodata.main.str1.4
-                0x000002c4       0x16 build/main.o
+                0x00000324       0x16 build/main.o
                                  0x1a (size before relaxing)
- *fill*         0x000002da        0x2 
+ *fill*         0x0000033a        0x2 
  .rodata.digits.0
-                0x000002dc       0x11 build/uart.o
-                0x000002f0                        . = ALIGN (0x4)
- *fill*         0x000002ed        0x3 
+                0x0000033c       0x11 build/uart.o
+                0x00000350                        . = ALIGN (0x4)
+ *fill*         0x0000034d        0x3 
 
-.glue_7         0x000002f0        0x0
- .glue_7        0x000002f0        0x0 linker stubs
+.glue_7         0x00000350        0x0
+ .glue_7        0x00000350        0x0 linker stubs
 
-.glue_7t        0x000002f0        0x0
- .glue_7t       0x000002f0        0x0 linker stubs
+.glue_7t        0x00000350        0x0
+ .glue_7t       0x00000350        0x0 linker stubs
 
-.vfp11_veneer   0x000002f0        0x0
- .vfp11_veneer  0x000002f0        0x0 linker stubs
+.vfp11_veneer   0x00000350        0x0
+ .vfp11_veneer  0x00000350        0x0 linker stubs
 
-.v4_bx          0x000002f0        0x0
- .v4_bx         0x000002f0        0x0 linker stubs
+.v4_bx          0x00000350        0x0
+ .v4_bx         0x00000350        0x0 linker stubs
 
-.iplt           0x000002f0        0x0
- .iplt          0x000002f0        0x0 build/main.o
+.iplt           0x00000350        0x0
+ .iplt          0x00000350        0x0 build/main.o
 
-.rel.dyn        0x000002f0        0x0
- .rel.iplt      0x000002f0        0x0 build/main.o
+.rel.dyn        0x00000350        0x0
+ .rel.iplt      0x00000350        0x0 build/main.o
 
 .results        0x20000000        0x0
                 0x20000000                        . = ALIGN (0x4)
  *(.results)
                 0x20000000                        . = ALIGN (0x4)
-                0x000002f0                        _sidata = LOADADDR (.data)
+                0x00000350                        _sidata = LOADADDR (.data)
 
-.data           0x20000000        0x0 load address 0x000002f0
+.data           0x20000000        0x0 load address 0x00000350
                 0x20000000                        . = ALIGN (0x4)
                 0x20000000                        _sdata = .
  *(.data*)
                 0x20000000                        . = ALIGN (0x4)
                 0x20000000                        _edata = .
 
-.igot.plt       0x20000000        0x0 load address 0x000002f0
+.igot.plt       0x20000000        0x0 load address 0x00000350
  .igot.plt      0x20000000        0x0 build/main.o
 
-.bss            0x20000000        0x0 load address 0x000002f0
+.bss            0x20000000        0x0 load address 0x00000350
                 0x20000000                        . = ALIGN (0x4)
                 0x20000000                        _sbss = .
  *(.bss*)

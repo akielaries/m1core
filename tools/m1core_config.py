@@ -43,10 +43,11 @@ PERIPH_DIR = os.path.join(REPO, "tools", "peripherals")
 # can, ethernet, ddr3, sd-card and the rest are deliberately absent because
 # nothing here needs them, and greying out blocks nobody wants just makes the
 # diagram harder to read. writing the rtl plus a tools/peripherals/<type>.yaml
-# moves an entry off this list and onto the palette automatically
+# moves an entry off this list and onto the palette automatically, which is why
+# it is empty: spi, i2c and rtc were the list, and they are all implemented
 PLANNED = {
     "ahb": [],
-    "apb": ["spi", "i2c", "rtc"],
+    "apb": [],
 }
 
 COL_ON      = QColor("#8ecae6")
@@ -89,6 +90,7 @@ class Block:
         self.rect = rect or QRect()
         self.periph = periph      # the mcu.yaml entry, for kind == instance
         self.type_name = type_name
+        self.slot = None          # index, for kind == expansion
 
 
 class Diagram(QWidget):
@@ -97,6 +99,8 @@ class Diagram(QWidget):
     selected = Signal(object)
     add_requested = Signal(str, str)
     planned_clicked = Signal(str)
+    exp_add = Signal(str)
+    exp_clicked = Signal(str, int)
 
     def __init__(self):
         super().__init__()
@@ -117,8 +121,13 @@ class Diagram(QWidget):
         """size to the widest row, so blocks keep a readable width and the
         scroll area scrolls rather than squeezing them"""
         if self.mcu is not None:
-            widest = max(len(self._row_for(b)) for b in ("ahb", "apb"))
+            widest = max([len(self._row_for(b)) for b in ("ahb", "apb")]
+                         + [len(self._exp_row())])
             self.setMinimumWidth(max(560, widest * SLOT_W + 60))
+            # the expansion band is only drawn when something is in it, so the
+            # height has to follow the band count or it gets clipped
+            bands = 2 + (1 if self._exp_row() else 0)
+            self.setMinimumHeight(170 + bands * 122)
         self.update()
 
     def _layout(self):
@@ -150,17 +159,21 @@ class Diagram(QWidget):
 
         # --- peripheral bands ------------------------------------------------
         y = cy + core_h + 34
-        for bus in ("ahb", "apb"):
-            row = self._row_for(bus)
-            band_h = 84
-            blocks.append(Block("band", f"{bus.upper()} Bus", bus,
-                                QRect(cx, y, cw, band_h)))
+        for bus in ("ahb", "apb", "exp"):
+            row = self._exp_row() if bus == "exp" else self._row_for(bus)
+            if bus == "exp" and not row:
+                continue
+            band_h = 84 if bus != "exp" else 96
+            title = ("Expansion - windows on the mcu top for your own logic"
+                     if bus == "exp" else f"{bus.upper()} Bus")
+            blocks.append(Block("band", title, bus, QRect(cx, y, cw, band_h)))
             self.bands.append(QRect(cx, y, cw, band_h))
             n = max(len(row), 1)
             slot = max(SLOT_W, (cw - 24) // n) if n * SLOT_W <= cw - 24 else SLOT_W
             bx = cx + 12
             for b in row:
-                b.rect = QRect(bx + 4, y + 30, slot - 8, 42)
+                b.rect = QRect(bx + 4, y + 30, slot - 8,
+                               54 if bus == "exp" else 42)
                 blocks.append(b)
                 bx += slot
             y += band_h + 26
@@ -171,20 +184,29 @@ class Diagram(QWidget):
         return blocks
 
     def _row_for(self, bus):
-        """instanced blocks first, then free types, then the planned greyed out"""
+        """what is actually instantiated on this bus, nothing else"""
         row = []
         for p in self.mcu.get("peripherals", []) if self.mcu else []:
             if p.get("bus") != bus:
                 continue
             row.append(Block("instance", p["name"], bus, periph=p,
                              type_name=p["type"]))
-        for name, t in sorted(self.types.items()):
-            if default_bus(t) == bus:
-                row.append(Block("free", f"+ {name}", bus, type_name=name))
-        for name, base, _size in gen.expansion_slots(self.mcu, bus):
-            row.append(Block("expansion", f"{name}\n0x{base:08X}", bus))
         for name in PLANNED.get(bus, []):
             row.append(Block("planned", name, bus, type_name=name))
+        return row
+
+    def _exp_row(self):
+        """every expansion window, both buses, in one band"""
+        row = []
+        for bus in ("ahb", "apb"):
+            for name, base, size in gen.expansion_slots(self.mcu, bus):
+                b = Block("expansion",
+                          f"{name}\n0x{base:08X}\n{gen._size_str(size)}", bus)
+                b.slot = int(name.replace(f"{bus}exp", ""))
+                row.append(b)
+            cfg = (self.mcu.get("expansion", {}) or {}).get(bus) or {}
+            if int(cfg.get("enabled", 0)) < int(cfg.get("slots", 0)):
+                row.append(Block("addexp", f"+ {bus} master", bus))
         return row
 
     def paintEvent(self, _ev):
@@ -224,13 +246,17 @@ class Diagram(QWidget):
                 fill, edge = COL_PLANNED, QColor("#c0c0c0")
             elif b.kind == "expansion":
                 fill, edge = QColor("#ffe3b0"), QColor("#b07d2a")
+            elif b.kind == "addexp":
+                fill, edge = COL_FREE, QColor("#b07d2a")
             elif b.kind == "bridge":
                 fill, edge = QColor("#ffffff"), QColor("#666666")
             else:
                 fill, edge = COL_CORE, QColor("#14607a")
 
             p.setBrush(fill)
-            p.setPen(QPen(edge, 1, Qt.DashLine if b.kind == "free" else Qt.SolidLine))
+            p.setPen(QPen(edge, 1,
+                          Qt.DashLine if b.kind in ("free", "addexp")
+                          else Qt.SolidLine))
             p.drawRect(b.rect)
 
             p.setPen(QColor("#9a9a9a") if b.kind == "planned" else QColor("#111111"))
@@ -249,7 +275,11 @@ class Diagram(QWidget):
 
     def mousePressEvent(self, ev):
         for b in self.blocks:
-            if b.kind in ("expansion",) and b.rect.contains(ev.pos()):
+            if b.kind == "expansion" and b.rect.contains(ev.pos()):
+                self.exp_clicked.emit(b.bus, b.slot)
+                return
+            if b.kind == "addexp" and b.rect.contains(ev.pos()):
+                self.exp_add.emit(b.bus)
                 return
             if b.kind not in ("band", "bridge") and b.rect.contains(ev.pos()):
                 if b.kind == "instance":
@@ -272,6 +302,7 @@ class Config(QMainWindow):
         super().__init__()
         self.path = path
         self.types = load_types()
+        self.std = gen.load_standard()
         self.mcu, self.ctx = mcu_yaml.load(path)
         self.setWindowTitle(f"m1core configurator - {os.path.relpath(path, REPO)}")
 
@@ -307,7 +338,7 @@ class Config(QMainWindow):
         cform.addRow("DTCM:", self.f_dtcm)
         cform.addRow("Clock:", self.f_clk)
 
-        e = QGroupBox("Expansion")
+        e = QGroupBox("Expansion (your own logic)")
         eform = QFormLayout(e)
         self.f_exp = {}
         for bus in ("ahb", "apb"):
@@ -316,6 +347,9 @@ class Config(QMainWindow):
             sb.setRange(0, int(cfg.get("slots", 0)))
             sb.setValue(int(cfg.get("enabled", 0)))
             sb.setSuffix(f" of {cfg.get('slots', 0)}")
+            sz = int(cfg.get("size_kb", 0)) * 1024
+            sb.setToolTip(f"{cfg.get('slots', 0)} windows of "
+                          f"{gen._size_str(sz)} at {int(cfg.get('base', 0)):#010x}")
             sb.valueChanged.connect(self.pull_general)
             self.f_exp[bus] = sb
             eform.addRow(f"{bus.upper()} masters:", sb)
@@ -333,6 +367,8 @@ class Config(QMainWindow):
         self.diagram.selected.connect(self.on_select)
         self.diagram.add_requested.connect(self.on_add)
         self.diagram.planned_clicked.connect(self.on_planned)
+        self.diagram.exp_add.connect(self.on_exp_add)
+        self.diagram.exp_clicked.connect(self.on_exp_clicked)
 
         scroll = QScrollArea()
         scroll.setWidget(self.diagram)
@@ -356,8 +392,29 @@ class Config(QMainWindow):
         self.insp.setEnabled(False)
         self.sel = None
 
+        palette = QHBoxLayout()
+        palette.addWidget(QLabel("Add:"))
+        self.add_btns = {}
+        for name in sorted(self.types):
+            btn = QPushButton(name)
+            btn.clicked.connect(
+                lambda _checked=False, n=name: self.on_add(n, default_bus(self.types[n])))
+            palette.addWidget(btn)
+            self.add_btns[name] = btn
+        palette.addSpacing(16)
+        for bus in ("ahb", "apb"):
+            btn = QPushButton(f"{bus} master")
+            btn.setToolTip(f"an expansion window for your own logic on the {bus} bus")
+            btn.clicked.connect(lambda _checked=False, b=bus: self.on_exp_add(b))
+            palette.addWidget(btn)
+        palette.addStretch(1)
+
+        left = QVBoxLayout()
+        left.addWidget(scroll, 1)
+        left.addLayout(palette)
+
         mid = QHBoxLayout()
-        mid.addWidget(scroll, 3)
+        mid.addLayout(left, 3)
         mid.addWidget(self.insp, 1)
         outer.addLayout(mid, 1)
 
@@ -368,7 +425,8 @@ class Config(QMainWindow):
         outer.addWidget(self.status)
 
         row = QHBoxLayout()
-        self.hint = QLabel("click a block to edit it, a dashed one to add it")
+        self.hint = QLabel("click a block to edit it, a dashed one to add it. "
+                           "the orange windows are for attaching your own logic")
         row.addWidget(self.hint, 1)
         self.b_gen = QPushButton("Save and Generate")
         row.addWidget(self.b_gen)
@@ -440,11 +498,19 @@ class Config(QMainWindow):
 
     def on_add(self, type_name, bus):
         t = self.types[type_name]
-        name = self.next_name(type_name)
-        p = {"type": type_name, "name": name, "bus": bus,
-             "base": self.next_base(bus, t.get("size", 0x1000))}
-        if t.get("irq_port"):
-            p["irq"] = self.next_irq()
+        std = self.standard_slot(type_name)
+        if std:
+            name, base, irq = std
+            p = {"type": type_name, "name": name, "bus": bus, "base": base}
+            if t.get("irq_port"):
+                p["irq"] = irq if irq is not None else self.next_irq()
+            self.hint.setText(
+                f"{name} placed at 0x{base:08X}, its address in gowin's map")
+        else:
+            self.hint.setText(
+                f"the standard map has no free {type_name} slot. add another "
+                f"in an apb expansion window, where it gets its own address")
+            return
         if type_name == "gpio":
             p["width"] = 2
         self.mcu.setdefault("peripherals", []).append(p)
@@ -467,12 +533,63 @@ class Config(QMainWindow):
         self.diagram.refresh()
         self.revalidate()
 
+    def on_exp_add(self, bus):
+        cfg = self.mcu["expansion"][bus]
+        n = int(cfg.get("enabled", 0)) + 1
+        cfg["enabled"] = n
+        self.f_exp[bus].blockSignals(True)
+        self.f_exp[bus].setValue(n)
+        self.f_exp[bus].blockSignals(False)
+        self.hint.setText(
+            f"{bus}exp{n - 1} added. it comes out as "
+            f"{'an ahb-lite slave' if bus == 'ahb' else 'an apb'} port group on "
+            f"the mcu top for your own logic")
+        self.diagram.refresh()
+        self.revalidate()
+
+    def on_exp_clicked(self, bus, slot):
+        cfg = self.mcu["expansion"][bus]
+        n = int(cfg.get("enabled", 0))
+        size = int(cfg["size_kb"]) * 1024
+        base = int(cfg["base"]) + slot * size
+        if slot == n - 1:
+            # only the last one can go, because removing a middle window would
+            # renumber the ports every block below it is wired to
+            cfg["enabled"] = n - 1
+            self.f_exp[bus].blockSignals(True)
+            self.f_exp[bus].setValue(n - 1)
+            self.f_exp[bus].blockSignals(False)
+            self.hint.setText(f"{bus}exp{slot} removed")
+        else:
+            self.hint.setText(
+                f"{bus}exp{slot} at 0x{base:08X}, {gen._size_str(size)}. "
+                f"remove the highest numbered window first, or the ports below "
+                f"it renumber")
+        self.diagram.refresh()
+        self.revalidate()
+
     def on_planned(self, name):
         self.hint.setText(
             f"{name}: not implemented. add rtl and tools/peripherals/{name}.yaml "
             f"and it appears here automatically")
 
     # -- allocation ----------------------------------------------------------
+
+    def standard_slot(self, type_name):
+        """the next free entry of this type in gowin's map, if there is one
+
+        placing a new block where gowin places it is the whole point of the
+        standard map: a driver written for their core then works here at the
+        same address, with the same interrupt number
+        """
+        used_names = {p["name"].upper() for p in self.mcu.get("peripherals", [])}
+        used_irqs = {p.get("irq") for p in self.mcu.get("peripherals", [])}
+        for e in self.std["peripherals"]:
+            if e.get("type") != type_name or e["name"] in used_names:
+                continue
+            irq = e.get("irq")
+            return e["name"].lower(), e["base"], (None if irq in used_irqs else irq)
+        return None
 
     def next_name(self, type_name):
         used = {p["name"] for p in self.mcu.get("peripherals", [])}
@@ -496,7 +613,22 @@ class Config(QMainWindow):
         return lo
 
     def next_irq(self):
+        """a free interrupt that is not one the standard map has spoken for
+
+        without this, adding spi (which gowin gives no interrupt) took irq 1
+        and pushed uart1 off its standard number when it was added later. an
+        interrupt number is part of the compatibility contract, so anything
+        without a standard one has to allocate around them
+        """
         used = {p.get("irq") for p in self.mcu.get("peripherals", [])}
+        reserved = {e["irq"] for e in self.std["peripherals"]
+                    if e.get("irq") is not None}
+        # named for a function in gowin's map even though no block here drives
+        # them, so they are not free either
+        reserved |= {5, 9}
+        for i in range(32):
+            if i not in used and i not in reserved:
+                return i
         for i in range(32):
             if i not in used:
                 return i
@@ -504,7 +636,28 @@ class Config(QMainWindow):
 
     # -- validation and output ------------------------------------------------
 
+    def sync_palette(self):
+        """grey out a type once the standard map has no slot left for it
+
+        the map is what says there are two uarts, so the button follows it
+        rather than a second list that could disagree
+        """
+        for name, btn in self.add_btns.items():
+            free = self.standard_slot(name) is not None
+            btn.setEnabled(free)
+            total = sum(1 for e in self.std["peripherals"]
+                        if e.get("type") == name)
+            used = total - sum(1 for e in self.std["peripherals"]
+                               if e.get("type") == name and
+                               e["name"] not in {p["name"].upper()
+                                                 for p in self.mcu.get("peripherals", [])})
+            btn.setToolTip(
+                self.types[name].get("doc", name) +
+                f"\n{used} of {total} used" +
+                ("" if free else ", the standard map has no more"))
+
     def revalidate(self):
+        self.sync_palette()
         try:
             types = gen.load_periph_types(self.mcu)
             errors = gen.validate(self.mcu, types)

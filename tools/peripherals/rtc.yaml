@@ -1,0 +1,26 @@
+# register layout for the m1core rtc
+#
+# see docs/mcu-config.md for the two layer split: this says what is inside an
+# rtc, boards/*/mcu.yaml says whether there is one and where it lives
+type: rtc
+struct: rtc_t
+doc: prescaled tick counter with a match interrupt
+size: 0x1000
+module: apb_rtc
+
+# no external pins: the counter runs from the fabric clock, there is no crystal
+pins: []
+
+irq_port: irq
+
+registers:
+  - { name: CTRL,      offset: 0x00, doc: "[0]EN [1]IRQEN" }
+  - { name: COUNT,     offset: 0x04, doc: "tick counter, writable" }
+  - { name: MATCH,     offset: 0x08, doc: "interrupt when COUNT reaches this" }
+  - { name: INTSTATUS, offset: 0x0c, doc: "read pending, write one to clear" }
+  - { name: PRESCALE,  offset: 0x10, doc: "pclk cycles per tick, minus one" }
+
+bits:
+  CTRL:
+    EN: 0
+    IRQEN: 1

@@ -2,6 +2,9 @@ IVERILOG ?= iverilog
 VVP      ?= vvp
 ROOT     := ..
 BUILD    := build
+# m1kern's device header is generated from the same description, so the two
+# bsps cannot disagree about an address
+M1KERN   := $(ROOT)/../m1kern
 
 DAP_RTL := $(ROOT)/rtl/debug/swd_phy.v $(ROOT)/rtl/debug/sw_dp.v
 MVP_RTL := $(DAP_RTL) \
@@ -12,6 +15,9 @@ MVP_RTL := $(DAP_RTL) \
            $(ROOT)/rtl/periph/ahb_gpio.v \
            $(ROOT)/rtl/periph/apb_uart.v \
            $(ROOT)/rtl/periph/apb_timer.v \
+           $(ROOT)/rtl/periph/apb_spi.v \
+           $(ROOT)/rtl/periph/apb_i2c.v \
+           $(ROOT)/rtl/periph/apb_rtc.v \
            $(ROOT)/rtl/mcu/ahb_apb_bridge.v \
            $(ROOT)/rtl/mcu/m1core_apb.v \
            $(ROOT)/rtl/mcu/ahb_arb.v \
@@ -21,9 +27,9 @@ MVP_RTL := $(DAP_RTL) \
 
 IFLAGS := -g2012 -Wall -I$(ROOT)/tb
 
-.PHONY: all checkproj checkgen checkyaml dap core exc blink uart hello mvp exp fw m1kern wave clean
+.PHONY: all checkproj checkgen checkyaml dap core exc blink uart hello mvp exp periph fw m1kern wave clean
 
-all: checkproj checkgen checkyaml dap core exc blink uart hello mvp exp
+all: checkproj checkgen checkyaml dap core exc blink uart hello mvp exp periph
 
 # the gowin project keeps its own file list, so it can drift from the rtl on
 # disk without simulation noticing. this is the cheap way to catch that
@@ -44,7 +50,8 @@ checkgen:
 	    --memmap $(ROOT)/docs/memory-map.md \
 	    --apb-rtl $(ROOT)/rtl/mcu/m1core_apb.v \
 	    --ahb-rtl $(ROOT)/rtl/mcu/ahb_fabric.v \
-	    --mcu-rtl $(ROOT)/rtl/mcu/m1core_mcu.v --check
+	    --mcu-rtl $(ROOT)/rtl/mcu/m1core_mcu.v \
+	    --cmsis-header $(M1KERN)/targets/m1core/bsp/system/M1CORE.h --check
 
 dap: $(BUILD)/tb_dap
 	$(VVP) $<
@@ -62,6 +69,9 @@ uart: $(BUILD)/tb_uart
 	$(VVP) $<
 
 hello: $(BUILD)/tb_hello fw
+	$(VVP) $<
+
+periph: $(BUILD)/tb_periph
 	$(VVP) $<
 
 exp: $(BUILD)/tb_exp
@@ -103,17 +113,27 @@ $(BUILD)/tb_dap: $(DAP_RTL) $(ROOT)/tb/tb_dap.sv $(ROOT)/tb/swd_host.svh | $(BUI
 # configuration that happens to be checked in. m1core_mcu.v is spliced, not
 # written whole, so the board copy is the starting point
 GEN := $(BUILD)/gen
-EXP_RTL := $(filter-out $(ROOT)/rtl/mcu/ahb_fabric.v $(ROOT)/rtl/mcu/m1core_mcu.v,$(MVP_RTL)) \
-           $(GEN)/ahb_fabric.v $(GEN)/m1core_mcu.v
+# every generated file has to come from the same description. taking the apb
+# wrapper from the board build while the mcu top came from here is what made
+# the peripheral ports not line up
+EXP_RTL := $(filter-out $(ROOT)/rtl/mcu/ahb_fabric.v $(ROOT)/rtl/mcu/m1core_mcu.v $(ROOT)/rtl/mcu/m1core_apb.v,$(MVP_RTL)) \
+           $(GEN)/ahb_fabric.v $(GEN)/m1core_mcu.v $(GEN)/m1core_apb.v
 
-$(GEN)/m1core_mcu.v $(GEN)/ahb_fabric.v: $(ROOT)/tb/exp_mcu.yaml $(ROOT)/rtl/mcu/m1core_mcu.v $(ROOT)/tools/m1core_gen.py
+$(GEN)/m1core_mcu.v $(GEN)/ahb_fabric.v $(GEN)/m1core_apb.v: $(ROOT)/tb/exp_mcu.yaml $(ROOT)/rtl/mcu/m1core_mcu.v $(ROOT)/tools/m1core_gen.py
 	@mkdir -p $(GEN)
 	@cp $(ROOT)/rtl/mcu/m1core_mcu.v $(GEN)/m1core_mcu.v
 	@python3 $(ROOT)/tools/m1core_gen.py $(ROOT)/tb/exp_mcu.yaml \
-	    --mcu-rtl $(GEN)/m1core_mcu.v --ahb-rtl $(GEN)/ahb_fabric.v
+	    --mcu-rtl $(GEN)/m1core_mcu.v --ahb-rtl $(GEN)/ahb_fabric.v \
+	    --apb-rtl $(GEN)/m1core_apb.v
 
 $(BUILD)/tb_exp: $(EXP_RTL) $(ROOT)/tb/tb_exp.sv $(ROOT)/tb/swd_host.svh | $(BUILD)
 	$(IVERILOG) $(IFLAGS) -o $@ $(EXP_RTL) $(ROOT)/tb/tb_exp.sv
+
+PERIPH_RTL := $(ROOT)/rtl/periph/apb_spi.v $(ROOT)/rtl/periph/apb_i2c.v \
+              $(ROOT)/rtl/periph/apb_rtc.v
+
+$(BUILD)/tb_periph: $(PERIPH_RTL) $(ROOT)/tb/tb_periph.sv | $(BUILD)
+	$(IVERILOG) $(IFLAGS) -o $@ $(PERIPH_RTL) $(ROOT)/tb/tb_periph.sv
 
 $(BUILD)/tb_mvp: $(MVP_RTL) $(ROOT)/tb/tb_mvp.sv $(ROOT)/tb/swd_host.svh | $(BUILD)
 	$(IVERILOG) $(IFLAGS) -o $@ $(MVP_RTL) $(ROOT)/tb/tb_mvp.sv
