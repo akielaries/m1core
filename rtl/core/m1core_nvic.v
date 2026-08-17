@@ -301,8 +301,14 @@ module m1core_nvic (
       12'h180: rdata = irq_enable;
       12'h200,
       12'h280: rdata = irq_pending;
+      // vectpending from the registered copy, not from sel_num. reading it
+      // combinationally put the whole six-level priority tree in front of the
+      // read data mux, and from there through the ppb, the fabric and the
+      // core's load path into the register file: seventeen levels before the
+      // bus mux even started, and the worst path in the soc by a wide margin.
+      // it is a status field, and it is already stale the moment it is read
       12'hd04: rdata = {3'd0, pend_pendsv, 1'b0, pend_systick, 5'd0,
-                        sel_num, 6'd0, 6'd0};
+                        pend_num_q, 6'd0, 6'd0};
       12'hd1c: rdata = {prio_svc, 30'd0};
       12'hd20: rdata = {prio_systick, 6'd0, prio_pendsv, 22'd0};
       default: begin

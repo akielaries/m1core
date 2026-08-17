@@ -20,7 +20,30 @@ module ahb_sram #(
   input  wire [1:0]  htrans,
   input  wire        hready,
   input  wire [31:0] hwdata,
-  output reg  [31:0] hrdata
+  output reg  [31:0] hrdata,
+
+  // ---- second port, for a core with a dedicated tcm interface ----
+  //
+  // the cortex-m1 trm gives the core its own ITCM and DTCM interfaces
+  // separate from the external bus, and a separate debug TCM interface on top
+  // of that, so the tcm rams are inherently dual ported. on fpga that is free:
+  // block ram has two ports. this is the core side; the ahb side above stays
+  // for the debugger and for any master that is not the core.
+  //
+  // deliberately no ready or grant. the trm is explicit that the tcm interface
+  // does not support wait states, which is the whole point: no arbitration and
+  // no hready in the fetch path
+  // read only on purpose. a second byte-enabled write port makes this two
+  // writers into one array, which gowin will not infer as block ram: it falls
+  // back to flops and fails with
+  //
+  //   IF0008 the number of DFF used to infer "mem" exceeds the resource limit
+  //
+  // the core only ever fetches from the itcm; writes come from the debugger
+  // through the ahb side above, so one writer is all that is needed
+  input  wire        p_en,
+  input  wire [31:0] p_addr,
+  output reg  [31:0] p_rdata
 );
 
   localparam AW = $clog2(WORDS);
@@ -64,6 +87,16 @@ module ahb_sram #(
       3'd1:    wbe = a_byte[1] ? 4'b1100 : 4'b0011;
       default: wbe = 4'b1111;
     endcase
+  end
+
+  wire [AW-1:0] p_word = p_addr[AW+1:2];
+
+  // port b: read only, one cycle, no handshake. kept in its own always block,
+  // which is the shape dual port block ram is inferred from
+  always @(posedge clk) begin
+    if (p_en) begin
+      p_rdata <= mem[p_word];
+    end
   end
 
   always @(posedge clk) begin

@@ -47,23 +47,25 @@ module ahb_arb (
   assign m0_gnt = m0_req && hready;
   assign m1_gnt = m1_req && !m0_req && hready;
 
+  // ---- two arms, not three ----
+  //
+  // the idle arm used to drive haddr to zero, which made this a three-way
+  // priority chain and put two mux levels on the address instead of one. the
+  // address is the longest thing in the design: it comes off the core's
+  // operand mux, through a 32-bit adder, through here, through the fabric
+  // decode and into a slave's address register, all in one cycle, and the
+  // timing report measured three lut levels inside this module alone.
+  //
+  // htrans is what says whether an address means anything. ahb leaves haddr a
+  // don't care during IDLE, the fabric only latches its data-phase owner on
+  // `hready && htrans[1]`, and every slave qualifies its own address phase the
+  // same way, so nothing downstream can act on an address the arbiter is not
+  // announcing. only htrans keeps the three-way form, and it is one bit
   always @(*) begin
-    if (m0_req) begin
-      haddr  = m0_addr;
-      hwrite = m0_write;
-      hsize  = m0_size;
-      htrans = HTRANS_NONSEQ;
-    end else if (m1_req) begin
-      haddr  = m1_addr;
-      hwrite = m1_write;
-      hsize  = m1_size;
-      htrans = HTRANS_NONSEQ;
-    end else begin
-      haddr  = 32'd0;
-      hwrite = 1'b0;
-      hsize  = 3'd2;
-      htrans = HTRANS_IDLE;
-    end
+    haddr  = m0_req ? m0_addr  : m1_addr;
+    hwrite = m0_req ? m0_write : m1_write;
+    hsize  = m0_req ? m0_size  : m1_size;
+    htrans = (m0_req || m1_req) ? HTRANS_NONSEQ : HTRANS_IDLE;
   end
 
   // who owns the data phase now, so write data comes from the right master

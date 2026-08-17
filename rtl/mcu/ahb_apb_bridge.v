@@ -46,19 +46,31 @@ module ahb_apb_bridge (
   localparam [1:0] ST_IDLE   = 2'd0;
   localparam [1:0] ST_SETUP  = 2'd1;
   localparam [1:0] ST_ACCESS = 2'd2;
+  // one more cycle, in which the captured read data is presented
+  localparam [1:0] ST_DONE   = 2'd3;
 
-  reg [1:0] state;
+  reg [1:0]  state;
+  reg [31:0] rdata_q;
 
   wire addr_phase = hsel && hready && htrans[1];
 
   // hwdata is presented by the master during the data phase, which is exactly
   // when the bridge is in setup and access, so it can be passed straight through
   assign pwdata = hwdata;
-  assign hrdata = prdata;
 
-  // ready in idle so a new address phase can start, and ready in the cycle the
-  // apb slave completes so the master samples prdata on the same edge
-  assign hreadyout = (state == ST_IDLE) || (state == ST_ACCESS && pready);
+  // the read data is captured rather than passed through.
+  //
+  // `assign hrdata = prdata` put the apb peripherals' read mux -- every
+  // register in the uart, the timer, the rtc, the spi and the i2c, selected by
+  // paddr -- between this bridge's address register and the core's register
+  // file, through the fabric and the whole load path. it showed up as a family
+  // of worst paths starting at paddr. one more cycle on an access that already
+  // takes four is not worth arguing about
+  assign hrdata = rdata_q;
+
+  // ready in idle so a new address phase can start, and ready in ST_DONE, the
+  // cycle the captured data is on hrdata
+  assign hreadyout = (state == ST_IDLE) || (state == ST_DONE);
 
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
@@ -67,6 +79,7 @@ module ahb_apb_bridge (
       penable <= 1'b0;
       pwrite  <= 1'b0;
       paddr   <= 32'd0;
+      rdata_q <= 32'd0;
     end else begin
       case (state)
         ST_IDLE: begin
@@ -90,7 +103,23 @@ module ahb_apb_bridge (
           if (pready) begin
             psel    <= 1'b0;
             penable <= 1'b0;
-            state   <= ST_IDLE;
+            rdata_q <= prdata;
+            state   <= ST_DONE;
+          end
+        end
+
+        // hreadyout is high here, so the master samples hrdata this cycle and
+        // may start its next address phase at the same time
+        ST_DONE: begin
+          penable <= 1'b0;
+          if (addr_phase) begin
+            psel   <= 1'b1;
+            pwrite <= hwrite;
+            paddr  <= haddr;
+            state  <= ST_SETUP;
+          end else begin
+            psel  <= 1'b0;
+            state <= ST_IDLE;
           end
         end
 

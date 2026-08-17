@@ -712,10 +712,16 @@ def gen_ahb_rtl(mcu, types, source):
     w("")
     w(f"  reg [{sel_w - 1}:0] sel_q;")
     w("")
+    w("  // an address phase only completes when hready is high, so the data")
+    w("  // phase owner must be latched on that condition and not on htrans")
+    w("  // alone. every slave already qualifies its own address phase the same")
+    w("  // way. without it, a master that changes address while hready is low")
+    w("  // moves hready to the wrong slave mid-transfer, and a wait-stated read")
+    w("  // returns the previous cycle's data")
     w("  always @(posedge clk or negedge rst_n) begin")
     w("    if (!rst_n) begin")
     w("      sel_q <= SEL_NONE;")
-    w("    end else if (htrans[1]) begin")
+    w("    end else if (hready && htrans[1]) begin")
     for i, (name, _, _) in enumerate(slaves):
         kw = "if" if i == 0 else "end else if"
         w(f"      {kw} (in_{name}) begin")
@@ -908,6 +914,7 @@ def gen_fabric_inst(mcu, types):
     w("  wire        " + ", ".join(f"hsel_{n}" for n in internal) + ";")
     w("  wire [31:0] " + ", ".join(f"hrdata_{n}" for n in internal) + ";")
     w("  wire        hreadyout_apb;")
+    w("  wire        hreadyout_ppb;")
     if "apbexp" in internal:
         w("  wire        hreadyout_apbexp;")
     w("")
@@ -935,12 +942,12 @@ def gen_fabric_inst(mcu, types):
     for n in names:
         src = f"{n}_hrdata" if n in exp else f"hrdata_{n}"
         w(f"    .hrdata_{n:<7} ({src}),")
-    w("    // internal slaves are all zero wait state; the apb bridge and any")
-    w("    // expansion window drive a real hreadyout")
+    w("    // the tcms and the gpio answer in the address phase; the apb bridge,")
+    w("    // the ppb and any expansion window drive a real hreadyout")
     for i, n in enumerate(names):
         if n in exp:
             src = f"{n}_hreadyout"
-        elif n in ("apb", "apbexp"):
+        elif n in ("apb", "apbexp", "ppb"):
             src = f"hreadyout_{n}"
         else:
             src = "1'b1"

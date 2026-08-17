@@ -1,0 +1,64 @@
+[
+ {
+  "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/empu_bench_top.v",
+  "InstLine" : 33,
+  "InstName" : "empu_bench_top",
+  "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/empu_bench_top.v",
+  "ModuleLine" : 33,
+  "ModuleName" : "empu_bench_top",
+  "SubInsts" : [
+   {
+    "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/empu_bench_top.v",
+    "InstLine" : 56,
+    "InstName" : "u_pll",
+    "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/src/gowin_pll/gowin_pll.v",
+    "ModuleLine" : 1,
+    "ModuleName" : "Gowin_PLL",
+    "SubInsts" : [
+     {
+      "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/src/gowin_pll/gowin_pll.v",
+      "InstLine" : 22,
+      "InstName" : "u_pll",
+      "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/src/gowin_pll/gowin_pll_mod.v",
+      "ModuleLine" : 11,
+      "ModuleName" : "Gowin_PLL_MOD"
+     },
+     {
+      "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/src/gowin_pll/gowin_pll.v",
+      "InstLine" : 35,
+      "InstName" : "u_pll_init",
+      "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/src/pll_init.v",
+      "ModuleLine" : 4,
+      "ModuleName" : "PLL_INIT"
+     }
+    ]
+   },
+   {
+    "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/empu_bench_top.v",
+    "InstLine" : 84,
+    "InstName" : "u_empu",
+    "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/src/gowin_empu_m1/gowin_empu_m1.v",
+    "ModuleLine" : 40382,
+    "ModuleName" : "Gowin_EMPU_M1_Top",
+    "SubInsts" : [
+     {
+      "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/src/gowin_empu_m1/gowin_empu_m1.v",
+      "InstLine" : 40563,
+      "InstName" : "M1_inst",
+      "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/src/gowin_empu_m1/gowin_empu_m1.v",
+      "ModuleLine" : 199,
+      "ModuleName" : "CortexM1DbgIntegrationWrapper"
+     },
+     {
+      "InstFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/src/gowin_empu_m1/gowin_empu_m1.v",
+      "InstLine" : 40680,
+      "InstName" : "u_GowinCM1AhbExtWrapper",
+      "ModuleFile" : "/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/src/gowin_empu_m1/gowin_empu_m1.v",
+      "ModuleLine" : 34858,
+      "ModuleName" : "GowinCM1AhbExtWrapper"
+     }
+    ]
+   }
+  ]
+ }
+]

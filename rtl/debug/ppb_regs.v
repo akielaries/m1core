@@ -6,7 +6,7 @@
 // every id value here is justified in docs/id-contract.md against the black
 // magic probe source, do not change one without re-reading that
 //
-// ahb-lite slave, zero wait states. the address phase is registered so hrdata
+// ahb-lite slave, one wait state. the address phase is registered so the read
 // lands in the data phase, which is what a synchronous slave needs to do
 
 module ppb_regs #(
@@ -22,6 +22,16 @@ module ppb_regs #(
   input  wire        hready,
   input  wire [31:0] hwdata,
   output reg  [31:0] hrdata,
+  // one wait state, and it buys a lot. the read mux below is six levels deep
+  // over every register in the block, and driving hrdata straight out of it
+  // put all six between this module's address register and the core's, then
+  // through the fabric and the load path into the core: ten of the twenty-five
+  // worst paths in one report started at a_addr. registered, what leaves here
+  // is a flop output.
+  //
+  // the cost is nothing in practice. this block is the scs, the nvic and the
+  // debug registers; no hot code touches it
+  output wire        hreadyout,
 
   // debug control to the core
   output wire        dbg_halt_req,
@@ -188,41 +198,42 @@ module ppb_regs #(
     end
   endfunction
 
+  reg [31:0] rdata_c;
   always @(*) begin
-    hrdata = 32'd0;
+    rdata_c = 32'd0;
     case (comp_base)
       BASE_ROM: begin
         case (off)
           // entry offsets are signed and relative to the rom table base
-          12'h000: hrdata = 32'hfff0_f003;   // scs @ 0xe000e000
-          12'h004: hrdata = 32'hfff0_2003;   // dwt @ 0xe0001000
-          12'h008: hrdata = 32'hfff0_3003;   // bpu @ 0xe0002000
-          12'h00c: hrdata = 32'h0000_0000;   // end of table
-          12'hfcc: hrdata = 32'h0000_0001;   // memtype, sysmem present
-          default: hrdata = id_regs(off, 12'h470, 4'h1);
+          12'h000: rdata_c = 32'hfff0_f003;   // scs @ 0xe000e000
+          12'h004: rdata_c = 32'hfff0_2003;   // dwt @ 0xe0001000
+          12'h008: rdata_c = 32'hfff0_3003;   // bpu @ 0xe0002000
+          12'h00c: rdata_c = 32'h0000_0000;   // end of table
+          12'hfcc: rdata_c = 32'h0000_0001;   // memtype, sysmem present
+          default: rdata_c = id_regs(off, 12'h470, 4'h1);
         endcase
       end
 
       BASE_SCS: if (nvic_range) begin
-        hrdata = nvic_rdata;
+        rdata_c = nvic_rdata;
       end else begin
         case (off)
-          SCS_CPUID: hrdata = CPUID_VALUE;
-          SCS_AIRCR: hrdata = {16'hfa05, aircr[15:0]};
-          SCS_DFSR:  hrdata = {27'd0, dfsr};
-          SCS_CTR:   hrdata = 32'd0;
-          SCS_DHCSR: hrdata = dhcsr_value;
-          SCS_DCRDR: hrdata = dcrdr;
-          SCS_DEMCR: hrdata = demcr;
-          default:   hrdata = id_regs(off, 12'h008, 4'he);
+          SCS_CPUID: rdata_c = CPUID_VALUE;
+          SCS_AIRCR: rdata_c = {16'hfa05, aircr[15:0]};
+          SCS_DFSR:  rdata_c = {27'd0, dfsr};
+          SCS_CTR:   rdata_c = 32'd0;
+          SCS_DHCSR: rdata_c = dhcsr_value;
+          SCS_DCRDR: rdata_c = dcrdr;
+          SCS_DEMCR: rdata_c = demcr;
+          default:   rdata_c = id_regs(off, 12'h008, 4'he);
         endcase
       end
 
       // no watchpoint comparators yet, numcomp in [31:28] reads 0
       BASE_DWT: begin
         case (off)
-          12'h000: hrdata = 32'd0;
-          default: hrdata = id_regs(off, 12'h00a, 4'he);
+          12'h000: rdata_c = 32'd0;
+          default: rdata_c = id_regs(off, 12'h00a, 4'he);
         endcase
       end
 
@@ -230,12 +241,12 @@ module ppb_regs #(
       // back to software breakpoints in ram, which is fine for the mvp
       BASE_BPU: begin
         case (off)
-          12'h000: hrdata = 32'd0;
-          default: hrdata = id_regs(off, 12'h00b, 4'he);
+          12'h000: rdata_c = 32'd0;
+          default: rdata_c = id_regs(off, 12'h00b, 4'he);
         endcase
       end
 
-      default: hrdata = 32'd0;
+      default: rdata_c = 32'd0;
     endcase
   end
 
@@ -334,6 +345,19 @@ module ppb_regs #(
         end
         end
       end
+    end
+  end
+
+  // a_valid is already exactly the one cycle that follows an accepted address
+  // phase, which is the cycle the read mux is settling in, so it is both the
+  // wait and the capture
+  assign hreadyout = !a_valid;
+
+  always @(posedge clk or negedge rst_n) begin
+    if (!rst_n) begin
+      hrdata <= 32'd0;
+    end else if (a_valid) begin
+      hrdata <= rdata_c;
     end
   end
 

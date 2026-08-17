@@ -43,19 +43,31 @@ module top (
   // generated in the gowin ide, IP Core Generator > Hard Module > CLOCK > PLL:
   //
   //   Common  > CLKIN 50.000, Enable Lock ticked
-  //   Clkout0 > 45 MHz    VCO 50 x 18 = 900, ODIV0 20
+  //   Clkout0 > 100 MHz   VCO 50 x MDIV 14 = 700, ODIV0 7
   //
-  // 45 rather than a round 50 because measured Fmax is 52.158, and 50 leaves
-  // 4% for voltage and temperature. this was found by asking for 100 and
-  // reading what came back: at a 100 MHz constraint the design failed with
-  // -7183 ns of total negative slack across 1752 endpoints, and reported
-  // 52.158 as what it could actually reach. every figure before that (25.697,
-  // 33.394, 44) was measured while the sdc asked for 25, so the tool stopped
-  // trying once it met that; those were floors
+  // one output only. the second one was a fallback frequency that was never
+  // used, and regenerating without it is what forced this note to be checked
+  // against the ip rather than trusted: it had said 45 MHz and ODIV0 20 for a
+  // long time while the hardware ran at 100
   //
-  // switching between them is a define here, but the frequency is also
-  // compiled into the header and asked for in timing.sdc, so all three move
-  // together or the build is quietly wrong. see the note below
+  // that 100 is a measuring stick, not a target the design meets. it is set
+  // high so the tool reports what it can actually reach instead of stopping
+  // once it has met something easy -- every early figure in this project
+  // (25.697, 33.394, 44) was measured while the sdc asked for 25 and was
+  // therefore a floor, not an Fmax.
+  //
+  // what it reaches is about 82 MHz, and that is the part rather than the
+  // design: gowin's own cortex-m1, the empu m1 ip, was built on this same
+  // board through this same pll and came back at 82.009 MHz against m1core's
+  // 81.691. see boards/gw5a25/bench/README.md. so a build that closes timing
+  // wants clkout0 nearer 80, with the usual margin below the measured ceiling
+  // for voltage and temperature.
+  //
+  // THE FREQUENCY LIVES IN THREE PLACES and they move together or the build is
+  // quietly wrong: this pll, mcu.yaml clock.hz (which is compiled into the c
+  // header, so a stale value silently breaks the uart baud divisor and the rtc
+  // prescale), and timing.sdc. mcu.yaml currently says 45 MHz and the pll says
+  // 100, which is open problem 2 in HANDOFF.md
   //
   // the port names below match what that generator emits: module Gowin_PLL
   // with clkin, clkout0 and lock. mdclk is the mdrp clock and only appears if
@@ -82,10 +94,11 @@ module top (
   wire clk_sys;
   wire pll_lock;
   wire pll_clk0;
-  wire pll_clk1;
 
-  // two outputs so a fallback frequency is one define away rather than an ip
-  // regeneration. define M1CORE_CLK1 to run from clkout1 instead of clkout0.
+  // one output. there used to be a second at a fallback frequency so that
+  // changing speed was a define rather than an ip regeneration, and it was
+  // never used: the frequency has to move in mcu.yaml and timing.sdc at the
+  // same time anyway, so it was a define that could only ever be wrong.
   //
   // mdclk must be a real running clock, not tied off. the generated wrapper
   // feeds it to PLL_INIT, which clocks the arora v pll's initialisation
@@ -95,23 +108,48 @@ module top (
   Gowin_PLL u_pll (
     .clkin   (HCLK),
     .clkout0 (pll_clk0),
-    .clkout1 (pll_clk1),
     .lock    (pll_lock),
     .mdclk   (HCLK)
   );
 
-`ifdef M1CORE_CLK1
-  assign clk_sys = pll_clk1;
-`else
   assign clk_sys = pll_clk0;
-`endif
 
 `endif
 
   // the soc takes an active low reset, the board key is active high.
   // also held while a pll is still acquiring: releasing reset onto an unlocked
   // clock starts the core fetching against a frequency that is still moving
-  wire rst_n = ~HRST & pll_lock;
+  wire rst_n_raw = ~HRST & pll_lock;
+
+  // ---- reset deassertion is synchronised to clk_sys ----
+  //
+  // neither source of rst_n_raw belongs to this clock domain. HRST is a key on
+  // a pin, and pll_lock comes out of the pll's init sequencer, which the
+  // generated wrapper clocks from mdclk -- HCLK, the 50 MHz oscillator, not
+  // the 100 MHz output. so releasing reset is a clock domain crossing, and the
+  // sta report called it: six hold violations, every one of them
+  // `Launch Clk HCLK` / `Latch Clk CLKOUT0` landing on the sequencer's control
+  // registers. those registers take their reset through the enable path rather
+  // than a dedicated clear, which is why they got a hold check at all and the
+  // rest of the core did not; the ones that did not are not safe either, they
+  // are just not checked.
+  //
+  // a hold violation does not go away by slowing the clock down. the flops
+  // would come out of reset on different cycles, or metastable, and the core
+  // would start from a state no simulation covers.
+  //
+  // asserting asynchronously is what a reset is for, so that stays. only the
+  // release is registered, twice, in the destination domain
+  reg [1:0] rst_sync;
+  always @(posedge clk_sys or negedge rst_n_raw) begin
+    if (!rst_n_raw) begin
+      rst_sync <= 2'b00;
+    end else begin
+      rst_sync <= {rst_sync[0], 1'b1};
+    end
+  end
+
+  wire rst_n = rst_sync[1];
 
   // preloading the itcm is optional and OFF by default.
   //

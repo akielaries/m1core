@@ -56,9 +56,21 @@ module tb_core;
   integer instrs = 0;
 
   always @(posedge clk) begin
+`ifdef M1CORE_FORCE_MULTICYCLE
     if (rst_n && dut.u_core.state == 5'd9) begin
       instrs = instrs + 1;
     end
+`elsif M1CORE_PIPELINE
+    // the pipelined core has no single execute state: an instruction retires
+    // when execute holds a valid one and is not stalled behind a memory access
+    if (rst_n && dut.u_core.e_v && !dut.u_core.e_busy) begin
+      instrs = instrs + 1;
+    end
+`else
+    if (rst_n && dut.u_core.state == 5'd9) begin
+      instrs = instrs + 1;
+    end
+`endif
   end
 
   // instruction trace, state 9 is ST_EXEC

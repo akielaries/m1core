@@ -69,10 +69,16 @@ module ahb_fabric (
 
   reg [2:0] sel_q;
 
+  // an address phase only completes when hready is high, so the data
+  // phase owner must be latched on that condition and not on htrans
+  // alone. every slave already qualifies its own address phase the same
+  // way. without it, a master that changes address while hready is low
+  // moves hready to the wrong slave mid-transfer, and a wait-stated read
+  // returns the previous cycle's data
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
       sel_q <= SEL_NONE;
-    end else if (htrans[1]) begin
+    end else if (hready && htrans[1]) begin
       if (in_itcm) begin
         sel_q <= SEL_ITCM;
       end else if (in_dtcm) begin

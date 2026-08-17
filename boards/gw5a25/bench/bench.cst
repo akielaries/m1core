@@ -1,0 +1,26 @@
+// ===========================================================================
+// benchmark harness pins
+//
+// only the two that must not be auto-placed:
+//
+//   HCLK on E2 is the 50 MHz oscillator and the pll's clock input. auto-placed
+//   anywhere else the pll has nothing to lock to, and ../timing.sdc's
+//   create_clock on [get_ports {HCLK}] would be constraining a pin that is not
+//   the clock. the whole comparison rests on both projects being asked for the
+//   same 100 MHz from the same source.
+//
+//   E2 is a dual-purpose CPU/SSPI ball, so it also needs those released as
+//   regular IO. that is NOT in this file, it is in
+//   bench/impl/empu_bench_process_config.json, which is a copy of the main
+//   project's settings. see ../README.md, "Dual-purpose pins"
+//
+// everything else -- GPIO, JTAG_7, JTAG_9, the uart, LOCKUP, HALTED -- is left
+// for the tool to place. this build is measured, not run, so pin choice is
+// noise, and guessing balls on this board is how PR2017 happens
+// ===========================================================================
+
+IO_LOC  "HCLK" E2;
+IO_PORT "HCLK" PULL_MODE=NONE;
+
+IO_LOC  "HRST" H10;
+IO_PORT "HRST" IO_TYPE=LVCMOS33 PULL_MODE=DOWN;

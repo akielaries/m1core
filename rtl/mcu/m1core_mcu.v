@@ -1,5 +1,21 @@
 `default_nettype none
 
+// ---- core selection ----
+//
+// this picks the core for the GOWIN BUILD only. do not edit it by hand: run
+// tools/select_core.py, which also fixes the project file. the two cores are
+// alternatives and exactly one may be listed, because gowin picks a top module
+// by looking for one nothing instantiates, so an unused core there gets chosen
+// as top and every pin in pins.cst then fails to bind.
+//
+// simulation ignores this entirely. it pins the core on the iverilog command
+// line, M1CORE_FORCE_MULTICYCLE or M1CORE_PIPELINE, so both cores stay
+// testable from the same checkout whatever the bitstream is set to build. the
+// guard is what lets the command line define coexist with this one
+`ifndef M1CORE_PIPELINE
+`define M1CORE_PIPELINE
+`endif
+
 // mcu top level: cpu, debug access port, bus fabric, memories and peripherals
 //
 // what this is for: attach a black magic probe, have it discover a cortex-m1
@@ -121,6 +137,24 @@ module m1core_mcu #(
   wire [31:0] hrdata;
   wire        hready, hresp;
 
+  // dedicated tcm ports, driven by the pipelined core and tied off otherwise
+  wire        core_itcm_en, core_dtcm_en, core_dtcm_write;
+  wire [31:0] core_itcm_addr, core_dtcm_addr, core_dtcm_wdata;
+  wire [3:0]  core_dtcm_be;
+  wire [31:0] core_itcm_rdata, core_dtcm_rdata;
+`ifdef M1CORE_FORCE_MULTICYCLE
+  assign core_itcm_en = 1'b0;   assign core_itcm_addr = 32'd0;
+  assign core_dtcm_en = 1'b0;   assign core_dtcm_addr = 32'd0;
+  assign core_dtcm_write = 1'b0; assign core_dtcm_be = 4'd0;
+  assign core_dtcm_wdata = 32'd0;
+`elsif M1CORE_PIPELINE
+`else
+  assign core_itcm_en = 1'b0;   assign core_itcm_addr = 32'd0;
+  assign core_dtcm_en = 1'b0;   assign core_dtcm_addr = 32'd0;
+  assign core_dtcm_write = 1'b0; assign core_dtcm_be = 4'd0;
+  assign core_dtcm_wdata = 32'd0;
+`endif
+
   wire        dap_req, dap_write, dap_gnt;
   wire [31:0] dap_addr, dap_wdata;
   wire [2:0]  dap_size;
@@ -164,7 +198,21 @@ module m1core_mcu #(
   wire [31:0] dreg_wdata, dreg_rdata;
   wire [31:0] demcr;
 
+  // ---- which core ----
+  //
+  // the pipelined core is selected with `M1CORE_PIPELINE. it is port
+  // compatible but does not implement debug or exceptions yet, so a build with
+  // it set runs from a preloaded itcm and gdb cannot halt it. the multi-cycle
+  // core remains the default and the reference the pipeline is tested against
+`ifdef M1CORE_FORCE_MULTICYCLE
+  // simulation pins the core it wants on the command line, so the selection
+  // made for the gowin build below cannot change which core a test exercises
   m1core_cpu u_core (
+`elsif M1CORE_PIPELINE
+  m1core_cpu_p u_core (
+`else
+  m1core_cpu u_core (
+`endif
     .clk          (clk),
     .rst_n        (rst_n_i),
     .bus_req      (cpu_req),
@@ -195,6 +243,19 @@ module m1core_mcu #(
     .dreg_wdata   (dreg_wdata),
     .dreg_ack     (dreg_ack),
     .dreg_rdata   (dreg_rdata)
+`ifdef M1CORE_FORCE_MULTICYCLE
+`elsif M1CORE_PIPELINE
+    , .itcm_en    (core_itcm_en)
+    , .itcm_addr  (core_itcm_addr)
+    , .itcm_rdata (core_itcm_rdata)
+    , .dtcm_en    (core_dtcm_en)
+    , .dtcm_addr  (core_dtcm_addr)
+    , .dtcm_write (core_dtcm_write)
+    , .dtcm_be    (core_dtcm_be)
+    , .dtcm_wdata (core_dtcm_wdata)
+    , .dtcm_rdata (core_dtcm_rdata)
+    , .unsupported ()
+`endif
   );
 
   ahb_arb u_arb (
@@ -230,6 +291,7 @@ module m1core_mcu #(
   wire        hsel_itcm, hsel_dtcm, hsel_gpio0, hsel_apb, hsel_ppb;
   wire [31:0] hrdata_itcm, hrdata_dtcm, hrdata_gpio0, hrdata_apb, hrdata_ppb;
   wire        hreadyout_apb;
+  wire        hreadyout_ppb;
 
   ahb_fabric u_fabric (
     .clk         (clk),
@@ -249,13 +311,13 @@ module m1core_mcu #(
     .hrdata_gpio0   (hrdata_gpio0),
     .hrdata_apb     (hrdata_apb),
     .hrdata_ppb     (hrdata_ppb),
-    // internal slaves are all zero wait state; the apb bridge and any
-    // expansion window drive a real hreadyout
+    // the tcms and the gpio answer in the address phase; the apb bridge,
+    // the ppb and any expansion window drive a real hreadyout
     .hreadyout_itcm (1'b1),
     .hreadyout_dtcm (1'b1),
     .hreadyout_gpio0 (1'b1),
     .hreadyout_apb  (hreadyout_apb),
-    .hreadyout_ppb  (1'b1)
+    .hreadyout_ppb  (hreadyout_ppb)
   );
   // END GENERATED fabric
 
@@ -287,7 +349,13 @@ module m1core_mcu #(
     .htrans (htrans),
     .hready (hready),
     .hwdata (hwdata),
-    .hrdata (hrdata_itcm)
+    .hrdata (hrdata_itcm),
+    // core side: the pipelined core fetches straight out of the itcm, which is
+    // what the trm's dedicated ITCM interface is. the multi-cycle core does not
+    // use it and drives these inactive
+    .p_en    (core_itcm_en),
+    .p_addr  (core_itcm_addr),
+    .p_rdata (core_itcm_rdata)
   );
 
   ahb_sram #(
@@ -302,7 +370,14 @@ module m1core_mcu #(
     .htrans (htrans),
     .hready (hready),
     .hwdata (hwdata),
-    .hrdata (hrdata_dtcm)
+    .hrdata (hrdata_dtcm),
+    // the dtcm core port is not used: a core write port here would be the
+    // second writer into this array and block ram inference fails. data
+    // accesses go out on the ahb master, which is free now that fetch does not
+    // use it
+    .p_en    (1'b0),
+    .p_addr  (32'd0),
+    .p_rdata (core_dtcm_rdata)
   );
 
   // ---- apb side: one ahb slot, as many peripherals as we like ----
@@ -355,6 +430,7 @@ module m1core_mcu #(
 
 
   ppb_regs u_ppb (
+    .hreadyout     (hreadyout_ppb),
     .clk          (clk),
     .rst_n        (rst_n_i),
     .hsel         (hsel_ppb),
