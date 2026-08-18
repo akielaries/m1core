@@ -24,7 +24,19 @@ mcu:
     # the fabric clock the design is synthesised with. software cannot read this
     # back (there is no PLL to interrogate) so it is emitted into the C header
     # as a constant and must match what boards/gw5a25/top.v produces
-    hz: 45000000
+    #
+    # 80 MHz because that is what the part gives. the sdc asks for 100 so the
+    # tool reports a real Fmax instead of stopping at something easy, and the
+    # answer has been 87-88 across many builds -- and 82.0 to 87.7 for gowin's
+    # own cortex-m1 on the same board, which is how we know it is the silicon
+    # and not the design. see boards/gw5a25/bench/README.md. 80 leaves about 9%
+    # for voltage and temperature.
+    #
+    # this value only tells software what the clock is. the clock itself is the
+    # pll in top.v, and the two have to be changed together: this was 45 MHz
+    # while the pll ran at 100 for most of the project, which meant every uart
+    # baud divisor and rtc prescale the bsp computed was wrong on hardware
+    hz: 50000000
     source: "pll from the 50 MHz oscillator, see boards/gw5a25/top.v"
 
   debug:

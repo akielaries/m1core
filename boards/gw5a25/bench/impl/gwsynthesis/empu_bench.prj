@@ -2,7 +2,7 @@
 <!DOCTYPE gowin-synthesis-project>
 <Project>
     <Version>beta</Version>
-    <Device id="GW5A-25A" package="MBGA121N" speed="1" partNumber="GW5A-LV25MG121NES"/>
+    <Device id="GW5A-25A" package="MBGA121N" speed="1" partNumber="GW5A-LV25MG121NC1/I0"/>
     <FileList>
         <File path="/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/src/gowin_empu_m1/gowin_empu_m1.v" type="verilog"/>
         <File path="/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/src/gowin_pll/gowin_pll.v" type="verilog"/>
@@ -19,7 +19,7 @@
         <Option type="print_all_synthesis_warning" value="0"/>
         <Option type="ram_rw_check" value="0"/>
         <Option type="top_module" value="empu_bench_top"/>
-        <Option type="vcc" value="0.9"/>
+        <Option type="vcc" value="1.0"/>
         <Option type="verilog_language" value="verilog-2001"/>
         <Option type="vhdl_language" value="vhdl-1993"/>
     </OptionList>

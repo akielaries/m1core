@@ -7,7 +7,7 @@
 
 -mod_name Gowin_PLL_MOD
 -file_name gowin_pll_mod
--path /home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/src/gowin_pll/
+-path /home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/src/gowin_pll/
 -type PLL_ADV
 -file_type vlg
 -ip_version 1.0

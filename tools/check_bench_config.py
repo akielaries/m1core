@@ -16,17 +16,55 @@ cleanly. See boards/gw5a25/bench/README.md.
 
 import json
 import os
+import re
 import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 MAIN = os.path.join(ROOT, "boards/gw5a25/impl/m1core_process_config.json")
 BENCH = os.path.join(ROOT, "boards/gw5a25/bench/impl/empu_bench_process_config.json")
 
+MAIN_GPRJ = os.path.join(ROOT, "boards/gw5a25/m1core.gprj")
+BENCH_GPRJ = os.path.join(ROOT, "boards/gw5a25/bench/empu_bench.gprj")
+
 # per project names, not settings
 IDENTITY = {
     "TopModule": ("top", "empu_bench_top"),
     "OUTPUT_BASE_NAME": ("m1_soc", "empu_bench"),
 }
+
+
+def device(gprj):
+    """the <Device name=.. pn=..>id</Device> line, as (pn, id)
+
+    both halves matter. changing the speed grade in the ide rewrites the part
+    number AND the trailing id -- NES is gw5a25a-000, NC1/I0 is gw5a25a-002 --
+    so a project carrying one of each is not the part you think it is
+    """
+    if not os.path.exists(gprj):
+        return None
+    m = re.search(r'<Device\s+name="([^"]*)"\s+pn="([^"]*)"\s*>([^<]*)</Device>',
+                  open(gprj).read())
+    return (m.group(2), m.group(3)) if m else None
+
+
+def check_device():
+    """the benchmark is meaningless if the two are built for different silicon.
+
+    this is not hypothetical: the project ran for most of its life set to
+    GW5A-LV25MG121NES while the die is marked MG121NC1/I0, so every 25k number
+    before 2026-08-17 was measured against the wrong delay model. when that was
+    corrected in the ide it was corrected in one project and not the other
+    """
+    a, b = device(MAIN_GPRJ), device(BENCH_GPRJ)
+    if a is None or b is None:
+        return False
+    if a != b:
+        print(f"FAIL part number differs. m1core is {a[0]} ({a[1]}), bench is "
+              f"{b[0]} ({b[1]}). the delay models follow the speed grade, so "
+              f"these two reports are not comparable")
+        return True
+    print(f"ok   both projects are {a[0]}")
+    return False
 
 
 def main():
@@ -42,7 +80,7 @@ def main():
     with open(BENCH) as f:
         bench_cfg = json.load(f)
 
-    failed = False
+    failed = check_device()
 
     for key, (want_main, want_bench) in IDENTITY.items():
         for name, cfg, want in (("m1core", main_cfg, want_main),

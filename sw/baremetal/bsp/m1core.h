@@ -14,7 +14,7 @@
 
 /* the fabric clock. software cannot read this back, there is no PLL to
    interrogate: pll from the 50 MHz oscillator, see boards/gw5a25/top.v */
-#define SYSTEM_CLOCK_HZ  45000000u
+#define SYSTEM_CLOCK_HZ  50000000u
 
 /* address regions */
 #define ITCM_BASE          0x00000000u

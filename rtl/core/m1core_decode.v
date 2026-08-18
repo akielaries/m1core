@@ -535,8 +535,24 @@ module m1core_decode (
         end else if (inst[11:5] == 7'b0110011) begin
           // cps: inst[4] is the im bit, 1 disables interrupts
           d_cps = 1'b1;
+        end else if (inst[15:8] == 8'hbf) begin
+          // ---- the hint space: nop, yield, wfe, wfi, sev ----
+          //
+          // executed as a nop, which armv6-m permits for all of them and
+          // requires for NOP itself. this is not a corner: the toolchain emits
+          // `nop` for alignment padding and every idle loop ends in `wfi`, and
+          // escaping them sent the core to ST_HALTED with `unsupported` set,
+          // or to ST_STOPPED with no debugger attached. it survived this long
+          // only because blink and hello are small enough that gcc never
+          // needed the padding.
+          //
+          // the defaults above are already inert -- no writeback, no memory,
+          // no branch, no flags -- so there is nothing to do but decline to
+          // escape. d_legacy clears so the multi-cycle core takes the same
+          // path rather than falling through to its casez
+          d_legacy = 1'b0;
         end else begin
-          // bkpt and the hint instructions
+          // bkpt, and anything else in this space that is not implemented
           d_esc = 1'b1;
         end
       end

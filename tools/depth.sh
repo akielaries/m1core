@@ -75,8 +75,8 @@ case "$MODE" in
       's/wire \[31:0\] d_addr   = e_a + e_b;/wire [31:0] d_addr   = e_a ^ e_b;/' \
       "$C" 'd_addr   = e_a \^ e_b'
     stub 'branch adder' \
-      "s/wire \[31:0\] br_target = e_pc + 32'd4 + e_boff;/wire [31:0] br_target = e_pc ^ e_boff;/" \
-      "$C" 'br_target = e_pc \^ e_boff'
+      "s/wire \[31:0\] br_target = x_pc4 + e_boff;/wire [31:0] br_target = x_pc4 ^ e_boff;/" \
+      "$C" 'br_target = x_pc4 \^ e_boff'
     SCRIPT="read_verilog -DM1CORE_PIPELINE $CORE_SRC;
             hierarchy -top m1core_cpu_p; proc; flatten; opt -full;
             techmap; opt -full; abc -lut 4; opt_clean; ltp -noff"

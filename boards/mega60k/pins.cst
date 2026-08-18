@@ -1,0 +1,47 @@
+// ===========================================================================
+// tang mega 60k (GW5AT-LV60PG484AC2/I1) pin constraints
+//
+// balls taken from pub/mega_60k_test/src/pins.cst, which is a build that
+// works on this board. VERIFY every ball in the gowin ide before building:
+// a wrong ball is a placement error at best and a driven output into another
+// driver at worst.
+//
+// NOTE the reset polarity. hwRstn is ACTIVE LOW here and pulled up, where the
+// gw5a25 board has an active high key pulled down. top.v does not invert on
+// this board and does on that one; swapping them gives a board that either
+// never leaves reset or never enters it.
+// ===========================================================================
+
+// 50 MHz system clock
+IO_LOC  "HCLK" V22;
+IO_PORT "HCLK" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=OFF PULL_STRENGTH=STRONG BANK_VCCIO=3.3;
+
+// reset, active low, pulled up so the board boots without it asserted
+IO_LOC  "hwRstn" AA13;
+IO_PORT "hwRstn" IO_TYPE=LVCMOS15 PULL_MODE=UP BANK_VCCIO=1.5;
+
+// ---------------------------------------------------------------------------
+// swd from the black magic probe
+//
+// SWDIO must be pulled up. the bus is undriven during every turnaround and the
+// framer relies on reading that as a one to swallow the trailing turnaround
+// clock; without the pull up it floats and framing breaks intermittently
+// ---------------------------------------------------------------------------
+IO_LOC  "JTAG_9_SWDCLK" AB20;
+IO_PORT "JTAG_9_SWDCLK" IO_TYPE=LVCMOS33 PULL_MODE=NONE BANK_VCCIO=3.3;
+IO_LOC  "JTAG_7_SWDIO" AA21;
+IO_PORT "JTAG_7_SWDIO" IO_TYPE=LVCMOS33 PULL_MODE=UP DRIVE=8 BANK_VCCIO=3.3;
+
+// uart
+IO_LOC  "UART1RXD" AA19;
+IO_PORT "UART1RXD" IO_TYPE=LVCMOS33 BANK_VCCIO=3.3;
+IO_LOC  "UART1TXD" AA20;
+IO_PORT "UART1TXD" IO_TYPE=LVCMOS33 BANK_VCCIO=3.3;
+
+// heartbeat led, and the two firmware controlled gpio
+IO_LOC  "BOOT_LED_A" P16;
+IO_PORT "BOOT_LED_A" IO_TYPE=LVCMOS33 BANK_VCCIO=3.3;
+IO_LOC  "GPIO[0]" R17;
+IO_PORT "GPIO[0]" IO_TYPE=LVCMOS33 BANK_VCCIO=3.3;
+IO_LOC  "GPIO[1]" T18;
+IO_PORT "GPIO[1]" IO_TYPE=LVCMOS33 BANK_VCCIO=3.3;

@@ -225,3 +225,20 @@ clock it would be roughly twice the throughput. If the eMPU build comes back
 fast *and* we already know its CPI advantage, the honest conclusion may be that
 the remaining headroom in this project is in CPI, not in megahertz — which is
 where `HANDOFF.md` said the alternative was, back at the start.
+
+## The speed grade was wrong until 2026-08-17
+
+Both projects were set to `GW5A-LV25MG121NES` and the die is marked
+`MG121NC1/I0`. Every 25k number before that date, m1core's and this
+benchmark's, was measured against the wrong delay model.
+
+Changing it in the IDE rewrites two things, and both have to match between the
+projects or the reports are not comparable:
+
+```
+<Device name="GW5A-25A" pn="GW5A-LV25MG121NC1/I0">gw5a25a-002</Device>
+                                          NES is gw5a25a-000 ^
+```
+
+`python3 tools/check_bench_config.py` now compares the part number as well as
+the 89 place and route settings.

@@ -1,0 +1,102 @@
+# m1core MCU description for the Tang Primer 25K
+#
+# This is the single source of truth for the composition of the MCU: which
+# peripherals exist, where they live, and which interrupt each one owns. The
+# generator turns it into RTL, the C device header, and the memory map document,
+# so those three can never disagree with each other.
+#
+# What is NOT here: the registers inside a peripheral. Those live in per-block
+# Cheby YAML, the same tooling already used for the ACM register maps. The split
+# is deliberate — this file answers "is there a UART0 and where is it", Cheby
+# answers "what bits does UART0's CTRL have".
+
+mcu:
+  name: m1core_tang25k
+
+  cpu:
+    # m1core is ARMv6-M. these are the only knobs that change the hardware
+    itcm_kb: 32
+    dtcm_kb: 16
+    # must match the linker scripts in sw/baremetal/bsp and m1kern's m1core
+    # target, or an oversized stack silently wraps inside ahb_sram
+
+  clock:
+    # the fabric clock the design is synthesised with. software cannot read this
+    # back (there is no PLL to interrogate) so it is emitted into the C header
+    # as a constant and must match what boards/gw5a25/top.v produces
+    #
+    # 80 MHz because that is what the part gives. the sdc asks for 100 so the
+    # tool reports a real Fmax instead of stopping at something easy, and the
+    # answer has been 87-88 across many builds -- and 82.0 to 87.7 for gowin's
+    # own cortex-m1 on the same board, which is how we know it is the silicon
+    # and not the design. see boards/gw5a25/bench/README.md. 80 leaves about 9%
+    # for voltage and temperature.
+    #
+    # this value only tells software what the clock is. the clock itself is the
+    # pll in top.v, and the two have to be changed together: this was 45 MHz
+    # while the pll ran at 100 for most of the project, which meant every uart
+    # baud divisor and rtc prescale the bsp computed was wrong on hardware
+    hz: 50000000
+    source: "pll from the 50 MHz oscillator, see boards/mega138k/top.v"
+
+  debug:
+    # SWD only. JTAG is not implemented and is not planned: the whole point of
+    # the ID contract work was to be found by a Black Magic Probe over SWD
+    transport: swd
+    # see docs/id-contract.md, every value derived from the BMP source
+    dpidr: 0x0C101477
+    cpuid: 0x410CC210
+
+  # ---------------------------------------------------------------------------
+  # Peripherals
+  #
+  # bus: ahb   fast, on the main fabric, costs a decode slot
+  #      apb   behind ahb_apb_bridge, costs nothing extra on the fabric
+  #
+  # irq numbering follows Gowin's eMPU M1 so m1kern's target layer ports over
+  # unchanged. see docs/memory-map.md
+  # ---------------------------------------------------------------------------
+  peripherals:
+    - type: gpio
+      name: gpio0
+      bus: ahb
+      base: 0x40000000
+      irq: 4
+      width: 2
+
+    # timer0 sits at the gowin/cmsdk offset. m1kern owns SysTick, so an
+    # application that wants its own time base uses this
+    - type: timer
+      name: timer0
+      bus: apb
+      base: 0x50000000
+      irq: 2
+
+    # no pins, so this costs the board nothing. spi and i2c are deliberately
+    # not here: both need real pins, so add them in the configurator at the
+    # same time as the pins.cst entries and the top.v wiring
+    - type: rtc
+      name: rtc
+      bus: apb
+      base: 0x50006000
+      irq: 6
+
+    - type: uart
+      name: uart0
+      bus: apb
+      base: 0x50004000
+      irq: 0
+
+  # ---------------------------------------------------------------------------
+  # Address windows reserved for blocks that are not part of m1core, so you can
+  # drop your own in without touching the map. Gowin calls these "AHB master
+  # 1-6" and "APB master 1-16"; they are slaves from the CPU's point of view
+  # ---------------------------------------------------------------------------
+  # `slots` is how many the address map reserves, `enabled` how many are
+  # actually decoded by the fabric and brought out as ports on the mcu top.
+  # they were reserved but never decoded at first, so an access to one returned
+  # zero with no error and looked like working hardware. nothing is wired now
+  # unless it is counted here
+  expansion:
+    apb: { base: 0x60000000, slots: 16, size_kb: 1024,  enabled: 0 }
+    ahb: { base: 0x80000000, slots: 6,  size_kb: 16384, enabled: 0 }

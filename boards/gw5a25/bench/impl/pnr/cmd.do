@@ -1,6 +1,6 @@
 -d /home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/impl/gwsynthesis/empu_bench.vg
 -p GW5A-25A-MBGA121N-1
--pn GW5A-LV25MG121NES
+-pn GW5A-LV25MG121NC1/I0
 -cst /home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/bench.cst
 -cfg /home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/impl/pnr/device.cfg
 -sdc /home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/timing.sdc
@@ -8,6 +8,7 @@
 -tr
 -ph
 -timing
+-replicate
 -cst_error
 -convert_sdp32_36_to_sdp16_18
 -place_option 2

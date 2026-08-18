@@ -134,7 +134,41 @@ module m1core_cpu_p (
   localparam [2:0] PRIO_HARDFAULT = 3'd1;
 
   reg [3:0]  state;
-  reg [31:0] regs [0:14];
+
+  // ---- the register file, one array per read port ----
+  //
+  // gowin's lut ram is one write and one read. a file with four readers is
+  // four rams, and GowinSynthesis will not replicate an inferred array by
+  // itself: with a single array it printed "Extracting RAM for identifier
+  // 'regs'" and then reported `SSRAM(RAM16) 0`, which is what a silent
+  // fallback to flops looks like. it recognises the shape and declines the
+  // mapping.
+  //
+  // so the replication is explicit. all four hold identical contents, written
+  // together by the single write port; each read port owns one. sixteen deep
+  // rather than fifteen because a ram16 is sixteen deep and r13 and r15 are
+  // never read from here anyway -- the banked stack pointer and the pc are
+  // muxed in around this
+  // ---- the register file: one write port, asynchronous reads, no reset ----
+  //
+  // one array, four read ports. it was briefly four arrays, one per reader,
+  // because that is the shape a distributed ram wants and arm's own m1 has its
+  // register file in ram. this device cannot:
+  //
+  //   WARN (IF0005) : Not support distributed RAM in current device
+  //
+  // GW5A has block ram and nothing between that and flops, and a 16x32 file
+  // with three operand reads in the same cycle is not a block ram. so the
+  // replication bought nothing -- four arrays with identical contents off a
+  // shared write port are provably one array and the optimiser merged them
+  // straight back, which is why the register count never moved -- and it is
+  // one array again.
+  //
+  // what did survive from that work, and what actually paid, is the shape:
+  // ONE write port and four reads rather than two writes and six reads.
+  // consolidating the three state-machine readers onto one port was worth
+  // 17 MHz on its own. nothing but rf_w may write this array
+  reg [31:0] regs [0:15];
   reg [31:0] sp_main;
   reg        n_flag, z_flag, c_flag, v_flag;
   reg        primask;
@@ -173,6 +207,20 @@ module m1core_cpu_p (
   // with, so the bus sees a register output and nothing else
   reg [31:0] exc_addr;
   reg [31:0] exc_base;
+
+  // ---- doubleword alignment of the exception frame ----
+  //
+  // TRM 4.5: "Doubleword alignment of the stack pointer is enforced when
+  // stacking commences. Bit [2] of the stack pointer is saved as bit [9] of
+  // the stacked xPSR."
+  //
+  // so the frame pointer is (sp - 32) with bit 2 cleared, which costs a
+  // further four bytes when the stack was only word aligned, and the bit that
+  // says so rides in the pushed xpsr so the unstack can put it back. without
+  // it a handler entered on a word aligned stack runs on a frame the aapcs
+  // says is impossible, and anything in it that needs eight byte alignment --
+  // a double, a long long, a memcpy that assumes it -- is on its own
+  reg exc_align;
   reg [31:0] exc_ret_addr;
   reg [5:0]  exc_num;
   reg [31:0] exc_return;
@@ -585,6 +633,7 @@ module m1core_cpu_p (
   // to the slave, and it takes the arbiter and the address decode off the
   // operand path rather than adding anything to it
   reg         mem_ag;              // the address is latched, ask for the bus
+  reg         mem_bad;             // ...and it was unaligned, so fault instead
   reg  [31:0] mem_addr;
 
   // ---- escapes are resolved in execute, not in decode ----
@@ -616,9 +665,26 @@ module m1core_cpu_p (
   reg  [3:0]  seq_base;
   reg  [31:0] seq_addr, seq_wbval;
   reg         seq_doing_extra;
-  // set when the popped pc was an EXC_RETURN, so the sequencer finishes its
-  // base writeback and then hands over to the unstacking sequencer
+  // true on the cycle the extra (pc) word of a pop lands and it is an
+  // EXC_RETURN. it feeds `redirect`, which is one bit and has always been
+  // driven from this compare, and it feeds the flop below. it must NOT feed
+  // `state`: bus_rdata arrives late from the fabric, and putting a 28-bit
+  // compare on it in front of the state register cost a path
+  //
+  //   u_itcm/mem_0/DO[0] -> u_core/state_3/D
+  //
+  // straight into the worst 25. the decision is taken one cycle later instead,
+  // from the flop, which is what seq_pop_exc was for in the first place
+  wire        seq_ret_now = seq_load && seq_doing_extra && mode_handler &&
+                            (bus_rdata[31:4] == 28'hfffffff);
+  // set on the cycle above, read on the next one. it was originally a flop set
+  // and tested in the SAME ST_SEQ_D cycle, which is non-blocking and so always
+  // read the stale zero: the handover never happened, `pop {rN, pc}` fell
+  // through to ST_RUN with no redirect and ran twice, and the stack drifted up
+  // one pop per exception. seq_ret_ph is the extra cycle that makes the flop
+  // readable
   reg         seq_pop_exc;
+  reg         seq_ret_ph;
   // the base register value, latched on entry. computing the start address and
   // the writeback value straight from vb put a 32-bit adder on the end of the
   // alu-result-to-forwarding-mux path, which was the critical path: e_shop ->
@@ -730,8 +796,26 @@ module m1core_cpu_p (
   wire e_busy   = e_v &&
                   ((e_is_mem && !mem_data) || (e_is_mul && !mul_ph) ||
                    (e_is_sh && !sh_ph) || e_esc);
+  // armv6-m has no unaligned access support at all: a word access must be word
+  // aligned and a halfword access halfword aligned. the srams mask the address
+  // rather than complaining, so without this a misaligned pointer silently
+  // reads the wrong location. the multi cycle core checks this in ST_MEM_A and
+  // the pipeline had no equivalent
+  //
+  // checked off the registered address rather than off the adder, so it is two
+  // bits of a flop into one compare, and it costs mem_want a single and level
+  // decided off the adder's low two bits, which are the fastest bits it has,
+  // and registered into mem_bad. NOT tested in mem_want: mem_want drives
+  // bus_req out to the fabric, and an and level there showed up as
+  // state -> u_fabric/sel_q/D and state -> u_gpio/a_off/CE in the worst 25.
+  // this way mem_want is bit for bit what it was before the check existed
+  wire mem_misalign = ((e_msize == SZ_WORD) && (d_addr[1:0] != 2'b00)) ||
+                      ((e_msize == SZ_HALF) && d_addr[0]);
+
   // the address-generate cycle, and then the address phase
-  wire mem_new    = (state == ST_RUN) && e_v && e_is_mem && !mem_ag && !mem_ph;
+  wire mem_new    = (state == ST_RUN) && e_v && e_is_mem && !mem_ag && !mem_ph &&
+                    !mem_bad;
+  wire mem_fault  = (state == ST_RUN) && mem_bad;
   assign mem_want = (state == ST_RUN) && e_v && e_is_mem && mem_ag && !mem_ph;
 
   // byte lanes for a dtcm write, the same replication the ahb slaves expect
@@ -788,6 +872,11 @@ module m1core_cpu_p (
   // whether the instruction in execute writes what the one in decode reads.
   // this is the whole of the forwarding decision and it is made here, a cycle
   // before the value is needed
+  // bl and blx write r14 with a return address rather than a datapath result.
+  // they are mutually exclusive with a normal writeback -- neither sets d_wb --
+  // so they can share the W stage instead of needing a port of their own
+  wire link_now = wb_now && e_link;
+
   wire fwd_hit_a  = wb_any && (e_rd == d_ra);
   wire fwd_hit_b  = wb_any && (e_rd == d_rb);
   wire fwd_hit_c  = wb_any && (e_rd == d_rc);
@@ -1051,8 +1140,10 @@ module m1core_cpu_p (
     case (exc_cnt)
       3'd6: push_word = exc_ret_addr;
       // xpsr. bit 24 is the thumb bit and is always set on armv6-m
+      // xpsr. bit 24 is the thumb bit and is always set on armv6-m; bit 9 is
+      // the frame alignment the unstack has to undo
       3'd7: push_word = {n_flag, z_flag, c_flag, v_flag, 3'd0, 1'b1,
-                         18'd0, ipsr};
+                         14'd0, exc_align, 3'd0, ipsr};
       default: push_word = rf_s_dat;
     endcase
   end
@@ -1127,6 +1218,7 @@ module m1core_cpu_p (
                         (!seq_extra && (seq_rest == 8'd0));
   wire       seq_base_wb = seq_last && seq_wb && !seq_stack &&
                            (seq_base != 4'd13);
+  wire       seq_wb_now  = (state == ST_SEQ_D) && bus_ready && seq_base_wb;
 
   wire       dreg_go  = dreg_req && !dreg_ack;
   wire       dreg_wr  = dreg_go && dreg_wnr;
@@ -1165,33 +1257,13 @@ module m1core_cpu_p (
         rf_w_idx = dreg_sel[3:0];
         rf_w_dat = dreg_wdata;
       end
-      default: begin
-      end
-    endcase
-  end
-
-  // r14, and the one other register a sequencer writes alongside a loaded one
-  reg         rf_x_en;
-  reg  [3:0]  rf_x_idx;
-  reg  [31:0] rf_x_dat;
-  always @* begin
-    rf_x_en  = 1'b0;
-    rf_x_idx = 4'd14;
-    rf_x_dat = link_val;
-    case (state)
-      ST_RUN: begin
-        // bl and blx return to the instruction after this one, with the thumb
-        // bit set because armv6-m has no other state
-        rf_x_en = e_v && !e_busy && e_link;
-      end
-      ST_SEQ_D: begin
-        rf_x_en  = bus_ready && seq_base_wb;
-        rf_x_idx = seq_base;
-        rf_x_dat = seq_wbval;
-      end
       ST_EXC_PUSH_D: begin
-        rf_x_en  = bus_ready && (exc_cnt == 3'd7);
-        rf_x_dat = mode_handler ? 32'hffff_fff1 :
+        // the EXC_RETURN value the handler will `bx lr` on. w_en is long since
+        // clear by here -- wb_reg requires ST_RUN and this is sixteen bus
+        // transactions later -- so the port is free
+        rf_w_en  = bus_ready && (exc_cnt == 3'd7);
+        rf_w_idx = 4'd14;
+        rf_w_dat = mode_handler ? 32'hffff_fff1 :
                    (control_spsel ? 32'hffff_fffd : 32'hffff_fff9);
       end
       default: begin
@@ -1287,10 +1359,12 @@ module m1core_cpu_p (
         spw_dat = exc_base;
       end
       ST_EXC_POP_D: begin
-        // exc_return[2] selects the stack returned to
+        // exc_return[2] selects the stack returned to. bus_rdata is the popped
+        // xpsr in this cycle, and its bit 9 says whether entry inserted four
+        // bytes of padding to reach doubleword alignment
         spw_en  = bus_ready && (exc_cnt == 3'd7);
         spw_psp = exc_return[2];
-        spw_dat = exc_frame + 32'd32;
+        spw_dat = (exc_frame + 32'd32) | (bus_rdata[9] ? 32'd4 : 32'd0);
       end
       default: begin
       end
@@ -1314,28 +1388,45 @@ module m1core_cpu_p (
     f_pop2 = d_is32;
   end
 
-  // ---- the register file, on its own ----
+  // ---- the register file: one write port, asynchronous reads, no reset ----
   //
-  // separate from the state machine so that nothing but these two ports can
-  // reach it. inside the big block it also picked up a mux level from the
-  // sys_reset_req arm, which does not write the file but does have to say so
+  // this shape is the point. a synchronous single write port with
+  // asynchronous reads and no reset is what a distributed ram wants, and it is
+  // what arm's own m1 uses -- `reg_file_b_..._RAMREG` turns up in its timing
+  // report where ours had fifteen banks of flops. as flops it was 480
+  // registers with two write ports and six read muxes, a block that every part
+  // of the design connects to, and the placer answered by spreading the
+  // datapath over twenty rows with 73% of the critical path in routing.
+  //
+  // getting here took three things: the state machine's reads share one port
+  // because they are in mutually exclusive states; the sequencer's base
+  // writeback and bl's link write ride the W stage instead of holding a second
+  // write port open; and there is no reset, because the armv6-m general
+  // registers are UNKNOWN out of reset and a ram cannot have one anyway.
+  //
+  // nothing but rf_w may write this array. adding a second writer anywhere
+  // silently turns it back into flops
+  //
+  // the reset is here on purpose. armv6-m leaves the general registers UNKNOWN
+  // out of reset and a ram cannot have one, so it was removed while the file
+  // was being shaped for a distributed ram. that shape is unreachable on this
+  // device -- Version A has 0K of S-SRAM, see the bugs list -- and without the
+  // reset the array starts as X in simulation, which propagates: a register
+  // read before it is written reaches the flags, then cond_ok, then br_taken,
+  // then e_v, and an X in e_v stalls execute forever because e_busy feeds back
+  // into it. `make excp` hung at a pc that depended on code layout, which is
+  // what X sensitivity looks like from the outside.
+  //
+  // gowin flops come up at zero from configuration anyway, so this costs
+  // nothing real and buys a deterministic simulation
   integer kr;
   always @(posedge clk or negedge rst_n) begin
     if (!rst_n) begin
-      for (kr = 0; kr < 15; kr = kr + 1) begin
+      for (kr = 0; kr < 16; kr = kr + 1) begin
         regs[kr] <= 32'd0;
       end
-    end else begin
-      if (rf_w_en) begin
-        regs[rf_w_idx] <= rf_w_dat;
-      end
-      // rf_x last: it is the only port that can collide with rf_w, and only in
-      // ST_SEQ_D, where the base register writeback follows the loaded word in
-      // the same cycle and has to win exactly as it did when both were written
-      // in source order
-      if (rf_x_en) begin
-        regs[rf_x_idx] <= rf_x_dat;
-      end
+    end else if (rf_w_en) begin
+      regs[rf_w_idx] <= rf_w_dat;
     end
   end
 
@@ -1346,6 +1437,9 @@ module m1core_cpu_p (
       e_v         <= 1'b0;
       mem_ph      <= 1'b0;
       mem_ag      <= 1'b0;
+      mem_bad     <= 1'b0;
+      seq_ret_ph  <= 1'b0;
+      seq_pop_exc <= 1'b0;
       redirect    <= 1'b0;
       redirect_pc <= 32'd0;
       rst_req     <= 1'b0;
@@ -1380,6 +1474,7 @@ module m1core_cpu_p (
       exc_frame     <= 32'd0;
       exc_addr      <= 32'd0;
       exc_base      <= 32'd0;
+      exc_align     <= 1'b0;
       exc_ret_addr  <= 32'd0;
       exc_new_prio  <= 3'd6;
       e_cps         <= 1'b0;
@@ -1425,7 +1520,6 @@ module m1core_cpu_p (
       e_mstack      <= 1'b0;
       e_mlist       <= 8'd0;
       e_ihi         <= 8'd0;
-      seq_pop_exc   <= 1'b0;
       for (k = 0; k < 4; k = k + 1) begin
         prio_stack[k] <= 3'd6;
       end
@@ -1505,7 +1599,7 @@ module m1core_cpu_p (
         ST_RUN: begin
           // ---- E: complete whatever is there ----
           if (e_v && !e_busy) begin
-            // the link register write is rf_x below
+            // bl and blx write r14 through the W stage, see link_now
             if (e_mem == MEM_NONE) begin
               // the register and sp writeback is hoisted out of this case, see
               // below: routing e_result through the state mux and five nested
@@ -1538,7 +1632,8 @@ module m1core_cpu_p (
           // the bus. the byte lane comes with it, it is the bottom of the
           // same value
           if (mem_new) begin
-            mem_ag   <= 1'b1;
+            mem_ag   <= !mem_misalign;
+            mem_bad  <=  mem_misalign;
             mem_addr <= d_addr;
             ld_lane  <= d_addr[1:0];
           end
@@ -1600,8 +1695,9 @@ module m1core_cpu_p (
             exc_ret_addr <= f_pc;
             exc_new_prio <= pend_prio;
             exc_cnt      <= 3'd0;
-            exc_addr     <= sp_read - 32'd32;
-            exc_base     <= sp_read - 32'd32;
+            exc_addr     <= (sp_read - 32'd32) & ~32'd4;
+            exc_base     <= (sp_read - 32'd32) & ~32'd4;
+            exc_align    <= sp_read[2];
             state        <= ST_EXC_PUSH_A;
             e_v          <= 1'b0;
           end
@@ -1639,7 +1735,14 @@ module m1core_cpu_p (
               seq_stack       <= e_mstack;
               seq_base        <= x_rb;
               seq_doing_extra <= 1'b0;
-              seq_wb          <= 1'b1;
+              // armv6-m LDM: `wback = (registers<n> == '0')`. if the base
+              // register is itself in the list it takes the loaded value and
+              // the writeback does not happen. we wrote back unconditionally,
+              // so `ldmia r0!, {r0, r1}` clobbered the word it had just
+              // loaded. stm always writes back, and push/pop reach the stack
+              // pointer through its own port rather than this one
+              seq_wb          <= !(e_mload && !e_mstack &&
+                                   e_mlist[x_rb[2:0]]);
               // only latch operands here; the arithmetic happens next cycle.
               // the forwarded value, not the raw one: the base register may
               // have been written by the instruction immediately before
@@ -1652,8 +1755,9 @@ module m1core_cpu_p (
               exc_ret_addr <= e_pc + 32'd2;
               exc_new_prio <= 3'd2;
               exc_cnt      <= 3'd0;
-              exc_addr     <= sp_read - 32'd32;
-              exc_base     <= sp_read - 32'd32;
+              exc_addr     <= (sp_read - 32'd32) & ~32'd4;
+              exc_base     <= (sp_read - 32'd32) & ~32'd4;
+              exc_align    <= sp_read[2];
               state        <= ST_EXC_PUSH_A;
             end else if (e_ihi == 8'hde) begin
               // permanently undefined. a real part takes a hardfault so a
@@ -1662,8 +1766,9 @@ module m1core_cpu_p (
               exc_ret_addr <= e_pc;
               exc_new_prio <= PRIO_HARDFAULT;
               exc_cnt      <= 3'd0;
-              exc_addr     <= sp_read - 32'd32;
-              exc_base     <= sp_read - 32'd32;
+              exc_addr     <= (sp_read - 32'd32) & ~32'd4;
+              exc_base     <= (sp_read - 32'd32) & ~32'd4;
+              exc_align    <= sp_read[2];
               state        <= ST_EXC_PUSH_A;
             end else if (dbg_en) begin
               // bkpt, which is how gdb sets a software breakpoint, and
@@ -1677,6 +1782,25 @@ module m1core_cpu_p (
               unsupported <= 1'b1;
               state       <= ST_STOPPED;
             end
+          end
+
+          // ---- E: an unaligned load or store ----
+          //
+          // it never reaches a data phase, so mem_data stays low and e_busy
+          // stays high: e_v has to be cleared here the way the escape path
+          // above does it, or execute never empties
+          if (mem_fault) begin
+            e_v          <= 1'b0;
+            mem_ag       <= 1'b0;
+            mem_bad      <= 1'b0;
+            exc_num      <= EXC_HARDFAULT;
+            exc_ret_addr <= e_pc;
+            exc_new_prio <= PRIO_HARDFAULT;
+            exc_cnt      <= 3'd0;
+            exc_addr     <= (sp_read - 32'd32) & ~32'd4;
+            exc_base     <= (sp_read - 32'd32) & ~32'd4;
+            exc_align    <= sp_read[2];
+            state        <= ST_EXC_PUSH_A;
           end
 
           // ---- D to E ----
@@ -1806,7 +1930,17 @@ module m1core_cpu_p (
         end
 
         ST_SEQ_D: begin
-          if (bus_ready) begin
+          if (seq_ret_ph) begin
+            // the decision cycle. flops only
+            seq_ret_ph <= 1'b0;
+            if (seq_pop_exc) begin
+              seq_pop_exc <= 1'b0;
+              exc_cnt     <= 3'd0;
+              state       <= ST_EXC_POP_A;
+            end else begin
+              state <= ST_RUN;
+            end
+          end else if (bus_ready) begin
             if (seq_load) begin
               if (seq_doing_extra) begin
                 // pop pc. in handler mode an EXC_RETURN magic value here is an
@@ -1823,20 +1957,28 @@ module m1core_cpu_p (
                 // recorded below, in the one place it was not fixed.
                 //
                 // loading them when the value is not an EXC_RETURN is harmless.
-                // redirect_pc is only read when redirect is set, and exc_return
-                // and exc_frame are only read in ST_EXC_POP_*, which is only
-                // reached through seq_pop_exc
+                // redirect_pc is only read when redirect is set, and exc_return,
+                // exc_frame and exc_addr are only read in ST_EXC_POP_*, which is
+                // only reached through seq_pop_exc
+                //
+                // exc_addr belongs in this group and was briefly not in it. it
+                // was loaded under `if (seq_pop_exc)` below, which put the
+                // 28-bit compare on its clock enable, and sixteen of the
+                // twenty-five worst paths in the build that followed ran
+                // u_itcm/mem_2/DO[0] -> exc_addr_*/CE. that is the same mistake
+                // this comment was written about, made again two lines away
+                // from where it is written
                 exc_return  <= bus_rdata;
                 // the frame sits above this pop, so it is at the stack pointer
                 // this sequencer is about to write back, not the one it still
                 // has. taking sp_main here puts the frame one whole pop too low
                 // and unstacks garbage
                 exc_frame   <= bus_rdata[2] ? sp_process : seq_wbval;
+                exc_addr    <= bus_rdata[2] ? sp_process : seq_wbval;
                 redirect_pc <= bus_rdata & 32'hffff_fffe;
-                if (mode_handler && (bus_rdata[31:4] == 28'hfffffff)) begin
-                  seq_pop_exc <= 1'b1;
-                end else begin
-                  redirect    <= 1'b1;
+                seq_pop_exc <= seq_ret_now;
+                if (!seq_ret_now) begin
+                  redirect <= 1'b1;
                 end
               end
               // the loaded register itself is written by rf_w
@@ -1845,16 +1987,15 @@ module m1core_cpu_p (
             seq_addr <= seq_addr + 32'd4;
 
             if (seq_doing_extra) begin
-              // that was the last one. the base register writeback is rf_x and
-              // the stack form of it is the stack pointer port
-              if (seq_pop_exc) begin
-                seq_pop_exc <= 1'b0;
-                exc_cnt     <= 3'd0;
-                exc_addr    <= exc_frame;
-                state       <= ST_EXC_POP_A;
-              end else begin
-                state <= ST_RUN;
-              end
+              // that was the last one. the base register writeback goes
+              // through the W stage, see seq_wb_now; the stack form of it is
+              // the stack pointer port.
+              //
+              // linger here one cycle rather than deciding now. deciding now
+              // means the compare reaches the state register; deciding next
+              // cycle reads a flop. ST_SEQ_D drives no bus request -- it falls
+              // to the default arm of the bus mux -- so the extra cycle is idle
+              seq_ret_ph <= 1'b1;
             end else begin
               seq_list <= seq_rest;
               seq_low  <= lowest_set(seq_rest);
@@ -2019,10 +2160,6 @@ module m1core_cpu_p (
       // written. every value reaching them passes one mux, not the state case
       // plus however many nested ifs the state in question happened to use.
       //
-      // rf_x last: it is the only port that can collide with rf_w, and only in
-      // ST_SEQ_D, where the base register writeback follows the loaded word in
-      // the same cycle and has to win exactly as it did when both were written
-      // in source order
       if (pri_we) begin
         primask <= pri_val;
       end
@@ -2061,9 +2198,28 @@ module m1core_cpu_p (
       // and both are false outside ST_RUN
       if (!e_busy) begin
         w2_data <= w_data;
-        w_data  <= wb_val;
-        w_idx   <= e_rd;
-        w_en    <= wb_reg;
+        if (seq_wb_now) begin
+          // the sequencer's base register writeback. it used to be a second
+          // write port, colliding with the loaded word in this very cycle,
+          // and that second port is what stopped the file being one write and
+          // three reads -- the shape a distributed ram wants and the shape
+          // arm's own m1 uses (`reg_file_b_..._RAMREG` in its timing report).
+          //
+          // it rides the W stage instead and lands one cycle later, in ST_RUN
+          // or ST_EXC_POP_A, where nothing else is writing. no extra state and
+          // no extra cycle, and the instruction whose decode read races it
+          // picks the value up through the second bypass level exactly as it
+          // would from any other writeback
+          w_data <= seq_wbval;
+          w_idx  <= seq_base;
+          w_en   <= 1'b1;
+        end else begin
+          // bl and blx write the return address to r14; everything else writes
+          // the datapath result to its own destination. never both
+          w_data <= link_now ? link_val : wb_val;
+          w_idx  <= link_now ? 4'd14    : e_rd;
+          w_en   <= link_now || wb_reg;
+        end
       end
 
       if (flg_we_n) begin
