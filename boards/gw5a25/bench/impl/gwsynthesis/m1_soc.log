@@ -1,9 +1,0 @@
-GowinSynthesis start
-Running parser ...
-Analyzing Verilog file '/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/src/gowin_empu_m1/gowin_empu_m1.v'
-Analyzing Verilog file '/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/src/gowin_pll/gowin_pll.v'
-Analyzing Verilog file '/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/src/gowin_pll/gowin_pll_mod.v'
-Analyzing Verilog file '/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/src/pll_init.v'
-Analyzing Verilog file '/home/akiel/trunk/pub/cortexm1_clone/boards/gw5a25/bench/empu_bench_top.v'
-ERROR (EX0302) : No valid top module found
-GowinSynthesis finish
