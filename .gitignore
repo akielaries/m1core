@@ -1,12 +1,23 @@
-# gowin ide output
-boards/*/impl/
+# gowin ide output, at any depth so the bench project is covered too.
+# the process config is NOT output: it is the place and route settings that
+# decide the result, and it is the one file worth keeping
+**/impl/*
+!**/impl/*_process_config.json
 
-# build artifacts
-sim/build/
-sw/baremetal/*/*/build/
-sw/baremetal/*/*/build-sim/
-sw/m1kern/build/
+# build artifacts, at any depth
+build/
+build-sim/
+*.o
+*.d
+*.elf
+*.bin
+*.hex
+*.map
 *.vcd
+
+# tools/pnr_sweep.py results
+tools/sweep-*/
+tools/sweep-*.csv
 
 # generated from tools/isagen.py, the seed in sim/Makefile is the source
 sw/baremetal/tests/isarand/isarand.S

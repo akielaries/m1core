@@ -26,7 +26,8 @@ BUILD   ?= build
 # cortex-m1 is armv6-m, thumb only
 ARCH    := -mcpu=cortex-m1 -mthumb
 CFLAGS  := $(ARCH) -Og -g3 -Wall -Wextra -ffreestanding \
-           -ffunction-sections -fdata-sections -I$(BSP_DIR) $(EXTRA_CFLAGS)
+           -ffunction-sections -fdata-sections -I$(BSP_DIR) $(EXTRA_CFLAGS) \
+           -MMD -MP
 LDFLAGS := $(ARCH) -T $(BSP_DIR)link.ld -nostdlib -Wl,--gc-sections \
            -Wl,-Map=$(BUILD)/$(APP).map
 
@@ -54,6 +55,9 @@ $(BUILD)/%.o: %.c | $(BUILD)
 
 $(BUILD)/%.o: %.S | $(BUILD)
 	$(CC) $(CFLAGS) -c $< -o $@
+
+# header deps, so regenerating m1core.h rebuilds
+-include $(OBJS:.o=.d)
 
 $(BUILD)/$(APP).elf: $(OBJS) $(BSP_DIR)link.ld | $(BUILD)
 	$(CC) $(OBJS) $(LDFLAGS) -o $@ $(LDLIBS)
