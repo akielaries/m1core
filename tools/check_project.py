@@ -101,8 +101,12 @@ def main():
         # be understood or every rtl file reads as missing
         for m in re.finditer(r'path="([^"]+\.v)"', text):
             p = m.group(1)
+            # an absolute path is from whichever checkout the ide ran in, so
+            # on ci or another machine relpath walks out of ROOT. key on the
+            # repo relative tail instead
             if os.path.isabs(p):
-                p = os.path.relpath(p, ROOT)
+                i = p.rfind("/rtl/")
+                p = p[i + 1:] if i >= 0 else os.path.relpath(p, ROOT)
             elif p.startswith("../../"):
                 p = p[len("../../"):]
             listed.add(p)
