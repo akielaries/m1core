@@ -1,0 +1,3 @@
+[submodule "sw/m1kern/m1kern"]
+	path = sw/m1kern/m1kern
+	url = git@github.com:akielaries/m1kern.git

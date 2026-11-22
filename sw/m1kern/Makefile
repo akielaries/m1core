@@ -1,27 +1,42 @@
 # builds m1kern's examples for m1core
 #
-# m1kern lives in its own repository, so this is a thin wrapper rather than a
-# copy. override M1KERN_DIR if yours is somewhere else
+# m1kern is a git submodule at ./m1kern, the example sources are in
+# m1kern/examples/<name>/. after cloning run
+#   git submodule update --init
+#
+#   make                                   01_blink for the tang primer 25k
+#   make BOARD=basys3 TARGET=05_preemption
 
-M1KERN_DIR ?= ../../../m1kern
-BUILD      := build
+M1KERN_DIR ?= m1kern
+BOARD      ?= gw5a25
+TARGET     ?= 01_blink
+BUILD      := build/$(BOARD)
 
-# must match the clock the fabric was synthesised with. the tang primer 25k
-# divides its 50 MHz oscillator by two in boards/gw5a25/top.v
-SYSTEM_CLOCK_HZ ?= 25000000
+# must match the clock the fabric was synthesised with, there is no pll to read
+# back. the 25k divides its 50 MHz oscillator by two, the basys 3 mmcm makes
+# 50 MHz from 100 MHz
+clock_gw5a25 := 25000000
+clock_basys3 := 50000000
+SYSTEM_CLOCK_HZ ?= $(clock_$(BOARD))
 
-TARGET ?= 01_blink.elf
+ifeq ($(SYSTEM_CLOCK_HZ),)
+$(error unknown BOARD=$(BOARD), use gw5a25 or basys3 or set SYSTEM_CLOCK_HZ)
+endif
 
-.PHONY: all clean
+.PHONY: all list clean
 
 all:
-	@test -d $(M1KERN_DIR) || { echo "m1kern not found at $(M1KERN_DIR)"; exit 1; }
+	@test -f $(M1KERN_DIR)/CMakeLists.txt || { echo "m1kern missing, run: git submodule update --init"; exit 1; }
 	cmake -S $(M1KERN_DIR) -B $(BUILD) \
 	    -DM1KERN_TARGET=m1core \
 	    -DSYSTEM_CLOCK_HZ=$(SYSTEM_CLOCK_HZ)
-	cmake --build $(BUILD) --target $(TARGET) $(ARGS)
+	cmake --build $(BUILD) --target $(TARGET).elf $(ARGS)
 	@echo
-	@echo "load $(BUILD)/bin/$(basename $(TARGET)).elf from gdb, then run"
+	@echo "built $(BUILD)/bin/$(TARGET).elf at $(SYSTEM_CLOCK_HZ) Hz"
+	@echo "load it from gdb: (gdb) file $(BUILD)/bin/$(TARGET).elf, then reload"
+
+list:
+	@ls $(M1KERN_DIR)/examples
 
 clean:
-	rm -rf $(BUILD)
+	rm -rf build

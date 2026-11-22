@@ -1,21 +1,30 @@
 # m1kern on m1core
 
 Applications that want threads, preemption and a scheduler use
-[m1kern](../../../m1kern), which has an `m1core` target. This directory is the
-integration point, not a copy of the kernel.
+[m1kern](https://github.com/akielaries/m1kern), which has an `m1core` target.
+It is a git submodule at `m1kern/`, so the kernel is in `m1kern/kernel/`, the
+m1core port in `m1kern/targets/m1core/` and the example sources in
+`m1kern/examples/<name>/main.c`. This directory only adds the wrapper Makefile.
+
+After cloning:
+
+```
+git submodule update --init
+```
 
 ## Build and run
 
 ```
-make            # builds 01_blink for m1core at 25 MHz
-make ARGS="--target 03_priority.elf"
+make list                                  # available examples
+make                                       # 01_blink for the 25k at 25 MHz
+make BOARD=basys3 TARGET=05_preemption     # basys 3 at 50 MHz
 ```
 
-then from gdb:
+Output goes to `build/<board>/bin/<example>.elf`. Then from gdb:
 
 ```
-(gdb) load build/bin/01_blink.elf
-(gdb) run
+(gdb) file build/basys3/bin/05_preemption.elf
+(gdb) reload
 ```
 
 LED0 toggles every 250 ms and LED1 every 500 ms, so on a scope you should see
@@ -31,9 +40,9 @@ not merely running.
 | UART0 at 0x50004000 | `rtl/periph/apb_uart.v` |
 | `SystemCoreClock` | compile time, must match the synthesised clock |
 
-`SYSTEM_CLOCK_HZ` is a constant because there is no PLL to read back. It is 25
-MHz on the Tang Primer 25K, because `top.v` divides the 50 MHz oscillator by
-two.
+`SYSTEM_CLOCK_HZ` is a constant because there is no PLL to read back. `BOARD`
+picks it: 25 MHz on the Tang Primer 25K (`top.v` divides the 50 MHz oscillator
+by two) and 50 MHz on the Basys 3 (MMCM from 100 MHz).
 
 ## Why this is separate from `../baremetal`
 
