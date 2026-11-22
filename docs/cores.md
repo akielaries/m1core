@@ -11,7 +11,7 @@ firmware, gdb and the debug path cannot tell them apart except by speed.
 | Fetch | one halfword per bus access, through the AHB fabric | one 32-bit word per cycle into a halfword queue, on a dedicated ITCM port |
 | Data to TCM | through the arbiter and fabric | dedicated DTCM port, no wait states |
 | CPI, `tb_core` ISA test | 5.51 | 3.09 |
-| m1kern throughput, `m1core_demo` spinners in the same sim window | 1x | about 3.8x |
+| m1kern throughput, `m1core_demo` spinners | 1x | 1.94x on the Basys 3 at 50 MHz (1.35M vs 0.70M loops/s per spinner), 3.8x in sim at a 4 MHz tick rate |
 | Exceptions, NVIC, MSP/PSP | yes | yes |
 | Halt, step, DCRSR/DCRDR, vector catch | yes | yes |
 | Basys 3 at 50 MHz, whole SoC | 5436 LUT, 2589 FF, 12 BRAM tiles, WNS +0.35 ns | 5286 LUT, 3225 FF, 20 BRAM tiles, WNS +1.87 ns |
@@ -30,15 +30,16 @@ AHB path on the other.
   Gowin picks as top whatever module nothing instantiates, so both cores in the
   project breaks the build.
 - **Basys 3:** `make CORE=multicycle` (default) or `make CORE=pipeline` in
-  `boards/xc7a35t_basys3`, `make clean` when switching. `rtl.tcl` picks the files
+  `boards/xc7a35t_basys3`. Each core builds into its own `build/<core>/` with
+  its own Vivado project, so switching needs no clean. `rtl.tcl` picks the files
   and the define.
 - **Simulation:** pinned on the iverilog command line with
   `-DM1CORE_FORCE_MULTICYCLE` or `-DM1CORE_PIPELINE`, so a test always exercises
   the core it names whatever the bitstream is set to.
 
 The multi-cycle core is the reference: simpler, and every pipeline test is
-checked against what it does. The Basys 3 defaults to it until the pipelined
-core with the stack pointer fix below has run m1kern on hardware.
+checked against what it does. The Basys 3 still defaults to it, though the
+pipelined core with the stack pointer fix below has run m1kern on the board.
 
 ## Multi-cycle
 

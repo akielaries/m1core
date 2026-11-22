@@ -11,9 +11,11 @@
  *   gpio       gpio0 bit 0 at 1 Hz, bit 1 at 2 Hz (LD4 and LD5 on the basys 3)
  *   uart0      the report, 115200 8n1 on the board's usb serial port
  *
- * expected on the uart every second:
- *   [  3000 ms] spin0=... spin1=... share 50%/50%
- * with the two shares staying close to even
+ * expected on the uart every second, counts are loop passes in the interval:
+ *   [3015 ms] +1004 ms spin0=695125 spin1=705376 share 49%/50%
+ * with the two shares staying close to even. per interval rather than totals
+ * because the 32-bit counters wrap after about 1.7 hours at 50 MHz, and
+ * unsigned subtraction across a wrap still gives the right delta
  */
 #include "m1kern.h"
 #include "board.h"
@@ -53,16 +55,27 @@ THREAD_FUNCTION(spin1_fn, arg) {
 
 THREAD_STACK(monitor, 512);
 THREAD_FUNCTION(monitor_fn, arg) {
+  uint32_t last_ms = system_time_ms;
+  uint32_t last0   = spin0_count;
+  uint32_t last1   = spin1_count;
+
   while (1) {
     thread_sleep_ms(1000);
 
-    uint32_t a = spin0_count;
-    uint32_t b = spin1_count;
+    uint32_t now = system_time_ms;
+    uint32_t c0  = spin0_count;
+    uint32_t c1  = spin1_count;
+    uint32_t a   = c0 - last0;
+    uint32_t b   = c1 - last1;
     uint32_t total = a + b;
 
-    console_printf("[%u ms] spin0=%u spin1=%u", system_time_ms, a, b);
-    /* divide total down rather than scale the counts up, a * 100 wraps within
-       a minute at 50 MHz */
+    console_printf("[%u ms] +%u ms spin0=%u spin1=%u", now, now - last_ms, a, b);
+    last_ms = now;
+    last0   = c0;
+    last1   = c1;
+
+    /* divide total down rather than scale the counts up, a * 100 wraps at
+       these rates */
     if (total >= 100) {
       console_printf(" share %u%%/%u%%", a / (total / 100), b / (total / 100));
     }
