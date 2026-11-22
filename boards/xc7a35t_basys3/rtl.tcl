@@ -1,9 +1,9 @@
 # shared by build.tcl and project.tcl
 #
-# core selection, `make CORE=pipeline` to override. multicycle is the reference
-# and the default. the pipelined core runs m1kern on this board about 1.9x
-# faster, since the push/pop stack bank fix (docs/cores.md)
-set core multicycle
+# core selection, `make CORE=multicycle` to override. the pipelined core is the
+# default: it runs m1kern on this board about 1.9x faster than the multi-cycle
+# reference, since the push/pop stack bank fix (docs/cores.md)
+set core pipeline
 if {[info exists ::env(CORE)] && $::env(CORE) ne ""} {
   set core $::env(CORE)
 }

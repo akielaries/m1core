@@ -7,13 +7,13 @@
 #   make clean     remove the batch build output, keep the gui project
 #   make distclean remove everything under build/
 #
-# CORE=multicycle (default) or CORE=pipeline picks the cpu, see rtl.tcl. each
+# CORE=pipeline (default) or CORE=multicycle picks the cpu, see rtl.tcl. each
 # core builds into its own build/<core>/ with its own project, so switching is
 # just a different CORE= and nothing needs cleaning
 
 VIVADO ?= /tools/Xilinx/2025.2/Vivado/bin/vivado
 LOADER ?= openFPGALoader
-CORE   ?= multicycle
+CORE   ?= pipeline
 export CORE
 OUT    := build/$(CORE)
 

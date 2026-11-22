@@ -29,7 +29,7 @@ AHB path on the other.
   guard at the top of `m1core_mcu.v` and the `.gprj` file list together, because
   Gowin picks as top whatever module nothing instantiates, so both cores in the
   project breaks the build.
-- **Basys 3:** `make CORE=multicycle` (default) or `make CORE=pipeline` in
+- **Basys 3:** `make CORE=pipeline` (default) or `make CORE=multicycle` in
   `boards/xc7a35t_basys3`. Each core builds into its own `build/<core>/` with
   its own Vivado project, so switching needs no clean. `rtl.tcl` picks the files
   and the define.
@@ -38,8 +38,8 @@ AHB path on the other.
   the core it names whatever the bitstream is set to.
 
 The multi-cycle core is the reference: simpler, and every pipeline test is
-checked against what it does. The Basys 3 still defaults to it, though the
-pipelined core with the stack pointer fix below has run m1kern on the board.
+checked against what it does. The Basys 3 defaults to the pipelined core, which
+since the stack pointer fix below runs m1kern on the board about 1.9x faster.
 
 ## Multi-cycle
 
