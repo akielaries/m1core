@@ -67,13 +67,20 @@ checkproj:
 checkyaml:
 	@python3 $(ROOT)/tools/mcu_yaml.py $(ROOT)/boards/gw5a25/mcu.yaml
 
+# the testbenches' clock define. gitignored and generated here, like
+# isarand_blocks.vh, so a fresh clone (ci) builds it before tb_core and
+# tb_isarand include it
+CLOCK_VH := $(ROOT)/tb/m1core_clock.vh
+
+$(CLOCK_VH): $(ROOT)/boards/gw5a25/mcu.yaml $(ROOT)/tools/m1core_gen.py
+	@python3 $(ROOT)/tools/m1core_gen.py $(ROOT)/boards/gw5a25/mcu.yaml --sim-header $@
+
 checkgen:
 	@python3 $(ROOT)/tools/m1core_gen.py $(ROOT)/boards/gw5a25/mcu.yaml \
 	    --header $(ROOT)/sw/baremetal/bsp/m1core.h \
 	    --memmap $(ROOT)/docs/memory-map.md \
 	    --apb-rtl $(ROOT)/rtl/mcu/m1core_apb.v \
 	    --ahb-rtl $(ROOT)/rtl/mcu/ahb_fabric.v \
-	    --sim-header $(ROOT)/tb/m1core_clock.vh \
 	    --mcu-rtl $(ROOT)/rtl/mcu/m1core_mcu.v \
 	    $(CMSIS_ARG) --check
 
@@ -228,7 +235,7 @@ $(BUILD)/tb_mvp: $(MVP_RTL) $(ROOT)/tb/tb_mvp.sv $(ROOT)/tb/swd_host.svh | $(BUI
 
 # the .S carries the generated block count in tb/isarand_blocks.vh, which the
 # bench includes, so the generator has to have run before the bench compiles
-$(BUILD)/tb_isarand: $(MVP_RTL) $(ROOT)/tb/tb_isarand.sv \
+$(BUILD)/tb_isarand: $(MVP_RTL) $(ROOT)/tb/tb_isarand.sv $(CLOCK_VH) \
                      $(ROOT)/sw/baremetal/tests/isarand/isarand.S | $(BUILD)
 	$(IVERILOG) $(IFLAGS) -o $@ $(MVP_RTL) $(ROOT)/tb/tb_isarand.sv
 
@@ -268,11 +275,11 @@ $(BUILD)/tb_excp: $(PIPE_RTL) $(ROOT)/tb/tb_exc.sv | $(BUILD)
 isarandp: $(BUILD)/tb_isarandp fw
 	$(VVP) $<
 
-$(BUILD)/tb_isarandp: $(PIPE_RTL) $(ROOT)/tb/tb_isarand.sv \
+$(BUILD)/tb_isarandp: $(PIPE_RTL) $(ROOT)/tb/tb_isarand.sv $(CLOCK_VH) \
                      $(ROOT)/sw/baremetal/tests/isarand/isarand.S | $(BUILD)
 	$(IVERILOG) $(PFLAGS) -o $@ $(PIPE_RTL) $(ROOT)/tb/tb_isarand.sv
 
-$(BUILD)/tb_core: $(MVP_RTL) $(ROOT)/tb/tb_core.sv | $(BUILD)
+$(BUILD)/tb_core: $(MVP_RTL) $(ROOT)/tb/tb_core.sv $(CLOCK_VH) | $(BUILD)
 	$(IVERILOG) $(IFLAGS) -o $@ $(MVP_RTL) $(ROOT)/tb/tb_core.sv
 
 # the same 148 checks, run against the pipelined core. this is the acceptance
@@ -283,7 +290,7 @@ PIPE_RTL := $(MVP_RTL) $(wildcard $(ROOT)/rtl/pipe/*.v)
 corep: $(BUILD)/tb_corep fw
 	$(VVP) $<
 
-$(BUILD)/tb_corep: $(PIPE_RTL) $(ROOT)/tb/tb_core.sv | $(BUILD)
+$(BUILD)/tb_corep: $(PIPE_RTL) $(ROOT)/tb/tb_core.sv $(CLOCK_VH) | $(BUILD)
 	$(IVERILOG) $(PFLAGS) -o $@ $(PIPE_RTL) $(ROOT)/tb/tb_core.sv
 
 $(BUILD)/tb_exc: $(MVP_RTL) $(ROOT)/tb/tb_exc.sv | $(BUILD)
