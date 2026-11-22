@@ -1,0 +1,48 @@
+name: docs
+
+# convert docs/*.md (plus DETAILS.md) to html with tools/mddoc.py and publish to
+# github pages at https://akielaries.github.io/m1core/ (same approach as
+# signalmesh). needs Settings > Pages > Source = "GitHub Actions" on the repo
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'DETAILS.md'
+      - 'tools/mddoc.py'
+      - '.github/workflows/docs.yml'
+  workflow_dispatch:
+
+concurrency:
+  group: docs-pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - name: checkout
+        uses: actions/checkout@v4
+
+      # DETAILS.md lives at the repo root, stage it next to docs/ as details.md
+      - name: build docs
+        run: |
+          mkdir -p _src
+          cp -r docs/. _src/
+          cp DETAILS.md _src/details.md
+          python3 tools/mddoc.py _src _site m1core
+
+      - name: upload pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+      - name: deploy to github pages
+        id: deploy
+        uses: actions/deploy-pages@v4
