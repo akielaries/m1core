@@ -25,19 +25,17 @@ mcu:
     # back (there is no PLL to interrogate) so it is emitted into the C header
     # as a constant and must match what boards/gw5a25/top.v produces
     #
-    # 80 MHz because that is what the part gives. the sdc asks for 100 so the
-    # tool reports a real Fmax instead of stopping at something easy, and the
-    # answer has been 87-88 across many builds -- and 82.0 to 87.7 for gowin's
-    # own cortex-m1 on the same board, which is how we know it is the silicon
-    # and not the design. see boards/gw5a25/bench/README.md. 80 leaves about 9%
-    # for voltage and temperature.
+    # 50 MHz is the oscillator, used directly: at this frequency the pll would
+    # be a 1:1 pass through, so top.v drops it and the design has one clock
+    # domain. the part measures about 75 MHz on a 100 MHz constraint (gowin's
+    # own cortex-m1 gets 83 on the same silicon and settings), so 50 leaves
+    # room for user logic as well as voltage and temperature.
     #
-    # this value only tells software what the clock is. the clock itself is the
-    # pll in top.v, and the two have to be changed together: this was 45 MHz
-    # while the pll ran at 100 for most of the project, which meant every uart
-    # baud divisor and rtc prescale the bsp computed was wrong on hardware
+    # this value only tells software what the clock is. change it and top.v
+    # together, then regenerate: it is compiled into the c header, and a stale
+    # one silently breaks every uart baud divisor and rtc prescale
     hz: 50000000
-    source: "pll from the 50 MHz oscillator, see boards/gw5a25/top.v"
+    source: "50 MHz oscillator direct, no pll, see boards/gw5a25/top.v"
 
   debug:
     # SWD only. JTAG is not implemented and is not planned: the whole point of

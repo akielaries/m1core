@@ -5,10 +5,10 @@
    to the apb bridge, the bridge completes with wait states, and the uart puts
    real bits on a pin */
 
-/* the loop body is a handful of cycles at 25 mhz, so this lands around a few
-   hundred ms per half period. same value blink uses */
+/* derived from the clock, not a constant: this was 700000 tuned for a 25 mhz
+   core and stayed that way through 45, 80 and 50 mhz. /36 is about 200 ms */
 #ifndef DELAY_ITERS
-#define DELAY_ITERS 700000u
+#define DELAY_ITERS (SYSTEM_CLOCK_HZ / 36u)
 #endif
 
 static void delay(volatile uint32_t n)

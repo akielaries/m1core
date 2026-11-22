@@ -13,7 +13,7 @@
 #include <stdint.h>
 
 /* the fabric clock. software cannot read this back, there is no PLL to
-   interrogate: pll from the 50 MHz oscillator, see boards/gw5a25/top.v */
+   interrogate: 50 MHz oscillator direct, no pll, see boards/gw5a25/top.v */
 #define SYSTEM_CLOCK_HZ  50000000u
 
 /* address regions */
