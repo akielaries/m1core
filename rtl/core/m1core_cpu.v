@@ -2,16 +2,17 @@
 
 // m1core cpu: armv6-m, multi-cycle
 //
-// deliberately not pipelined. nothing in the toolchain or the debugger can
-// observe pipeline timing, and a multi-cycle machine is far easier to get
-// right. it can be pipelined later without changing the programmer's model
+// deliberately not pipelined: the reference core, far easier to get right. the
+// 3-stage alternative is rtl/pipe/m1core_cpu_p.v, same ports, compared in
+// docs/cores.md
 //
 // instruction fetch is one halfword at a time. that costs cycles but removes
 // every alignment special case, since a 32-bit thumb instruction is just two
 // halfword fetches
 //
-// not implemented yet: exceptions, nvic, svc. those come with the next stage.
-// bkpt and svc currently halt the core, which is at least visible in gdb
+// implements the full armv6-m base set, the exception model (nvic, svc,
+// pendsv, systick, msp/psp, hardfault, lockup) and halt/step/register access
+// for the debugger. bkpt halts
 
 module m1core_cpu (
   input  wire        clk,

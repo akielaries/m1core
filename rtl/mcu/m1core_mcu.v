@@ -200,10 +200,10 @@ module m1core_mcu #(
 
   // ---- which core ----
   //
-  // the pipelined core is selected with `M1CORE_PIPELINE. it is port
-  // compatible but does not implement debug or exceptions yet, so a build with
-  // it set runs from a preloaded itcm and gdb cannot halt it. the multi-cycle
-  // core remains the default and the reference the pipeline is tested against
+  // the pipelined core is selected with `M1CORE_PIPELINE, the multi-cycle one
+  // with `M1CORE_FORCE_MULTICYCLE. same ports and the same programmer's model,
+  // the multi-cycle core is the reference the pipeline is tested against. see
+  // docs/cores.md
 `ifdef M1CORE_FORCE_MULTICYCLE
   // simulation pins the core it wants on the command line, so the selection
   // made for the gowin build below cannot change which core a test exercises

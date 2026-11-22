@@ -4,11 +4,11 @@ ROOT     := ..
 BUILD    := build
 # m1kern's device header is generated from the same description, so the two
 # bsps cannot disagree about an address
-# m1kern lives in a sibling checkout, so it is not always there: a clone of
-# this repo alone, or ci, has only this tree. the generated device header is
-# still checked when it is present, and skipped when it is not, rather than
-# making the whole regression depend on a directory outside the repository
-M1KERN     := $(ROOT)/../m1kern
+# m1kern is a submodule at sw/m1kern/m1kern. a clone without
+# `git submodule update --init` does not have it, so the generated device
+# header is checked when it is present and skipped when it is not, rather than
+# making the whole regression depend on the submodule
+M1KERN     := $(ROOT)/sw/m1kern/m1kern
 M1KERN_HDR := $(wildcard $(M1KERN)/targets/m1core/bsp/system/M1CORE.h)
 ifneq ($(M1KERN_HDR),)
 CMSIS_ARG  := --cmsis-header $(M1KERN_HDR)
@@ -39,21 +39,19 @@ MVP_RTL := $(DAP_RTL) \
 IFLAGS := -g2012 -Wall -I$(ROOT)/tb -DM1CORE_FORCE_MULTICYCLE
 PFLAGS := -g2012 -Wall -I$(ROOT)/tb -DM1CORE_PIPELINE
 
-.PHONY: all checkproj checkgen checkyaml dap core isarand exc FORCE blink uart hello mvp exp periph fw m1kern wave clean \
-        fetch pipe aluequiv corep isarandp blinkp hellop mvpp pipeline
+.PHONY: all checkproj checkgen checkyaml dap core isarand exc FORCE blink uart hello mvp exp periph fw m1kern m1kernp wave clean \
+        fetch pipe aluequiv corep isarandp blinkp hellop mvpp excp pipeline
 
 all: checkproj checkgen checkyaml dap core isarand exc FORCE blink uart hello mvp exp periph pipeline
 
 # everything that exercises the pipelined core. kept as its own group so it is
 # obvious which results belong to which core
-# excp is deliberately not here: exceptions are implemented in the pipelined
-# core and demonstrably work end to end, but 6 of the 15 checks in the suite
-# still fail. run `make excp` to see it. leaving it out keeps the pass count
-# honest rather than having it cover a test known to fail
+# excp is in: all 15 exception checks pass on the pipelined core. it was left
+# out while 6 of them failed
 # hellop is in: it used to miss the testbench's 50 ms window because a multi
 # register transfer drained the pipeline before it could start, and it does not
 # any more
-pipeline: fetch pipe aluequiv corep isarandp blinkp mvpp hellop
+pipeline: fetch pipe aluequiv corep isarandp blinkp mvpp hellop excp
 
 # the gowin project keeps its own file list, so it can drift from the rtl on
 # disk without simulation noticing. this is the cheap way to catch that
@@ -158,22 +156,34 @@ exp: $(BUILD)/tb_exp
 mvp: $(BUILD)/tb_mvp fw
 	$(VVP) $<
 
-# m1kern lives in its own repo, so this is opt-in rather than part of `all`.
-# built with a low core clock so systick and the uart divider are small enough
-# to simulate
-M1KERN_DIR ?= $(ROOT)/../m1kern
+# m1kern is a submodule, so this is opt-in rather than part of `all`. built
+# with a low core clock so systick and the uart divider are small enough to
+# simulate. m1kern is the multi-cycle core, m1kernp the pipelined one
+#
+# m1kernp is the test that found push/pop writing back to msp while thread mode
+# was on psp. tb_exc never runs push/pop on psp, an rtos does it on the first
+# nested call in a thread
+M1KERN_DIR ?= $(M1KERN)
 M1KERN_BUILD := $(BUILD)/m1kern-cmake
 
-m1kern: $(BUILD)/tb_m1kern
-	@test -d $(M1KERN_DIR) || { echo "m1kern not found at $(M1KERN_DIR)"; exit 1; }
+$(BUILD)/m1kern.hex: FORCE | $(BUILD)
+	@test -f $(M1KERN_DIR)/CMakeLists.txt || { echo "m1kern missing, run: git submodule update --init"; exit 1; }
 	cmake -S $(M1KERN_DIR) -B $(M1KERN_BUILD) \
 	    -DM1KERN_TARGET=m1core -DSYSTEM_CLOCK_HZ=4000000 >/dev/null
 	cmake --build $(M1KERN_BUILD) --target 01_blink.elf >/dev/null
-	python3 $(ROOT)/tools/bin2hex.py $(M1KERN_BUILD)/bin/01_blink.bin $(BUILD)/m1kern.hex
+	python3 $(ROOT)/tools/bin2hex.py $(M1KERN_BUILD)/bin/01_blink.bin $@
+
+m1kern: $(BUILD)/tb_m1kern $(BUILD)/m1kern.hex
+	$(VVP) $<
+
+m1kernp: $(BUILD)/tb_m1kernp $(BUILD)/m1kern.hex
 	$(VVP) $<
 
 $(BUILD)/tb_m1kern: $(MVP_RTL) $(ROOT)/tb/tb_m1kern.sv | $(BUILD)
 	$(IVERILOG) $(IFLAGS) -o $@ $(MVP_RTL) $(ROOT)/tb/tb_m1kern.sv
+
+$(BUILD)/tb_m1kernp: $(PIPE_RTL) $(ROOT)/tb/tb_m1kern.sv | $(BUILD)
+	$(IVERILOG) $(PFLAGS) -o $@ $(PIPE_RTL) $(ROOT)/tb/tb_m1kern.sv
 
 # the testbenches load real firmware images, so build them first
 fw: $(ROOT)/sw/baremetal/tests/isarand/isarand.S

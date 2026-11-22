@@ -6,11 +6,11 @@
 // D  decode table, register read, operand select, forwarding
 // E  one shared datapath, branch resolve, memory, writeback
 //
-// port compatible with the multi-cycle m1core_cpu so it can drop into
-// m1core_mcu once it is complete. this phase implements the reset sequence,
-// the data-processing groups, branches and load/store. LDM/STM, exceptions,
-// debug and the 32-bit forms raise d_esc and are not handled yet: the core
-// stops on them so a test shows exactly where it ran out of core.
+// port compatible with the multi-cycle m1core_cpu, drops into m1core_mcu in
+// its place. complete: the full base set, LDM/STM/PUSH/POP and the exception
+// model in a sequencer outside the pipeline, and debug halt/step/register
+// access. passes the same suites as the multi-cycle core plus m1kern
+// (sim: make pipeline, make m1kernp). see docs/cores.md
 //
 // ---- why there is no separate load-use interlock ----
 // a memory instruction occupies E for two cycles, address phase then data
@@ -835,8 +835,8 @@ module m1core_cpu_p (
   assign dtcm_wdata = (e_msize == SZ_BYTE) ? {4{e_st[7:0]}} :
                       (e_msize == SZ_HALF) ? {2{e_st[15:0]}} : e_st;
 
-  // mrs reads a system register rather than the datapath. there is no ipsr,
-  // psp or control on this core yet, so those read as zero
+  // mrs reads a system register rather than the datapath. sysm values with no
+  // register behind them read as zero
   reg [31:0] sysval;
   always @* begin
     case (e_sysm)
@@ -1344,8 +1344,12 @@ module m1core_cpu_p (
         spw_en = bus_ready;
       end
       ST_SEQ_D: begin
+        // push and pop write back to whichever stack thread mode is on. this
+        // was hardwired to msp, so on psp a push moved msp and the matching
+        // pop returned through a stale frame. m1kern hit it on the first
+        // nested call in a thread, tb_exc never ran push/pop on psp
         spw_en  = bus_ready && seq_last && seq_wb && seq_stack;
-        spw_psp = 1'b0;
+        spw_psp = use_psp;
         spw_dat = seq_wbval;
       end
       ST_HALTED: begin

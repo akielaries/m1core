@@ -1,7 +1,7 @@
 # cortexm1_clone
 
-An ARMv6-M compatible soft core for Gowin/Tang FPGAs, debuggable over SWD with a
-Black Magic Probe and gdb. Not an ARM product, not affiliated with ARM. "Cortex-M1"
+An ARMv6-M compatible soft core for Gowin (Tang Primer 25K) and Xilinx Artix-7
+(Basys 3) FPGAs, debuggable over SWD with a Black Magic Probe and gdb. Not an ARM product, not affiliated with ARM. "Cortex-M1"
 appears here only to describe what this is binary and tool compatible with.
 
 ## Why
@@ -39,12 +39,21 @@ behind a debugger that already works.
       with a terminal. Loop timing independently confirms the 25 MHz clock
 - [x] NVIC and the exception model: SysTick, SVC, PendSV, priorities, MSP/PSP
 - [x] HardFault: undefined instruction, unaligned access, bad branch target, lockup
+- [x] 3-stage pipelined core, same ports and programmer's model, see
+      `docs/cores.md`
+- [x] m1kern (preemptive RTOS) running on both cores in simulation, and on the
+      multi-cycle core on a Basys 3 (`sw/m1kern/apps/m1core_demo`)
 - [ ] BPU/DWT for hardware breakpoints and watchpoints
 
 ## Layout
 
 ```
-rtl/core/       armv6m_core.v      the cpu, and nothing else
+rtl/core/       m1core_cpu.v       the multi-cycle cpu, the reference core
+                m1core_decode.v    instruction decode, shared by both cores
+                m1core_nvic.v      nvic, systick, exception priorities
+rtl/pipe/       m1core_cpu_p.v     the 3-stage pipelined cpu
+                m1core_fetch.v     its fetch stage and halfword queue
+                m1core_alu.v       its datapath
 rtl/debug/      swd_phy, sw_dp     swd framing and the debug port
                 mem_ap             turns DRW accesses into bus cycles
                 ppb_regs           rom table, scs, dwt/bpu id blocks
@@ -53,25 +62,29 @@ rtl/mcu/        m1core_mcu.v       mcu top: cpu + debug + fabric + memories
                 ahb_arb            two master arbiter, debugger wins
                 ahb_fabric         address decode and read mux
                 ahb_sram           itcm/dtcm
-rtl/periph/     ahb_gpio.v         peripherals live here as they are added
+rtl/periph/     gpio, uart, timer, rtc, spi, i2c
 
-sw/bsp/         startup.c, link.ld, soc.h, bsp.mk
-                                   board support shared by every application
-sw/apps/blink/  main.c             demo application
-sw/tests/isa/   isatest.S          self checking instruction test
+sw/baremetal/   bsp/, apps/{blink,hello}, tests/{isa,isarand,exc}
+                                   no rtos, used by the testbenches
+sw/m1kern/      apps/m1core_demo   our m1kern applications
+                m1kern/            m1kern, git submodule
+sw/gdbinit                         bmp connect, swd_scan, attach, reload
 
-boards/gw5a25/  tang primer 25k: gprj, pins.cst, timing.sdc, board top.v
+boards/gw5a25/          tang primer 25k: gprj, pins.cst, mcu.yaml, board top.v
+boards/xc7a35t_basys3/  basys 3: vivado tcl, basys3.xdc, board top.v, Makefile
+boards/mega60k, mega138k
 tb/             testbenches, systemverilog
 sim/            iverilog build
-tools/          bin2hex.py
-docs/           id-contract.md, derived from the bmp source
+tools/          m1core_gen.py (header, apb decode, memory map from mcu.yaml),
+                select_core.py, bin2hex.py, checks
+docs/           cores.md, memory-map.md, mcu-config.md, id-contract.md
 ```
 
-Split by role rather than by file type. `rtl/core` is the reusable CPU,
+Split by role rather than by file type. `rtl/core` and `rtl/pipe` are the CPUs,
 `rtl/debug` is what makes a probe recognise it, `rtl/mcu` is the assembly, and
 `rtl/periph` is where the system grows.
 
-Adding an application is three lines:
+Adding a bare metal application is three lines:
 
 ```make
 APP  := myapp
@@ -79,7 +92,7 @@ SRCS := main.c
 include ../../bsp/bsp.mk
 ```
 
-`sw/bsp/bsp.mk` supplies the toolchain flags, startup code, linker script and hex
+`sw/baremetal/bsp/bsp.mk` supplies the toolchain flags, startup code, linker script and hex
 conversion. An app carrying its own vector table (the ISA test does) sets
 `BSP_SRCS :=` to opt out of the startup code.
 
@@ -95,17 +108,20 @@ Testbenches under `tb/` remain SystemVerilog; they never go near Gowin.
 ## Simulation
 
 ```
-cd sim && make            # all four suites
+cd sim && make            # everything, both cores
 make dap                  # phy + dp only
-make core                 # isa test on the cpu
+make core                 # isa test on the multi-cycle cpu
 make blink                # cpu runs blink, pin toggles
 make mvp                  # full debug path
+make exc                  # exception model
+make pipeline             # the suites above on the pipelined core, plus excp
+make m1kern m1kernp       # m1kern 01_blink on each core (opt in, slow)
 vvp build/tb_dap +dbg     # trace decoded swd requests
 vvp build/tb_core +trace  # instruction trace
 make wave                 # vcd + gtkwave
 ```
 
-All 68 checks pass across the four suites. The MVP test walks the same discovery path
+The MVP test walks the same discovery path
 `adi.c` does, in the same order: DPIDR, power up, AP IDR and BASE, ROM table
 CIDR/PIDR/MEMTYPE, entry decode to the SCS, SCS CIDR/PIDR, CPUID, the DHCSR halt
 handshake, core registers through DCRSR/DCRDR, then ITCM/DTCM writes, TAR
@@ -113,22 +129,17 @@ auto-increment streaming, and sub-word writes.
 
 ## Memory map
 
-```
-0x00000000  itcm, 16 kb   gdb load lands here
-0x20000000  dtcm, 8 kb
-0x40000000  gpio   data / dir / set / clr
-0xe0001000  dwt    (id block only, no comparators yet)
-0xe0002000  bpu    (id block only, no comparators yet)
-0xe000e000  scs
-0xe00ff000  rom table
-```
+See `docs/memory-map.md`, generated from `boards/gw5a25/mcu.yaml`. The short
+version: ITCM at 0x00000000 (gdb `load` lands here), DTCM at 0x20000000, GPIO0
+at 0x40000000, the APB peripherals from 0x50000000, the PPB at 0xE0000000.
 
 ## The core
 
-Multi-cycle, not pipelined. M1 is a 3-stage pipeline, but nothing in the
-toolchain or the debugger can observe pipeline timing, and a multi-cycle machine
-is far easier to get right. It can be pipelined later without changing the
-programmer's model.
+There are two: a multi-cycle reference core (`rtl/core/m1core_cpu.v`) and a
+3-stage pipeline (`rtl/pipe/m1core_cpu_p.v`), with the same ports and the same
+programmer's model. `docs/cores.md` compares them, with diagrams, numbers, how
+to pick one per board, and what an RTOS needs from either. The rest of this
+section describes the multi-cycle core.
 
 Instruction fetch is one halfword at a time. That costs cycles but removes every
 alignment special case, because a 32-bit Thumb instruction is simply two
@@ -243,12 +254,15 @@ DP, MEM-AP, AHB fabric, peripheral. If it then blinks on its own after
 
 ## Hardware bring-up, in order
 
-See `boards/gw5a25/README.md` for the Tang Primer 25K specifics.
+See `boards/gw5a25/README.md` for the Tang Primer 25K. On the Basys 3,
+`make prog` in `boards/xc7a35t_basys3` builds and loads the bitstream, with SWD
+on Pmod JA (pin 1 SWCLK, pin 2 SWDIO) and UART0 on the board's USB serial port.
 
-1. Check the pins in `boards/gw5a25/pins.cst`, open `m1core.gprj`, build, flash.
-2. LED1 lights once the probe completes the power-up handshake, LED2 once it
-   attaches, LED3 flickers on SWD traffic. If LED1 never lights the probe is not
-   getting through the DP at all.
+1. Build and load the bitstream.
+2. Watch the bring-up staircase on the first four LEDs (`m1core_mcu.v`): LED0
+   heartbeat, LED1 SWCLK edges arriving, LED2 a line reset recognised (latched),
+   LED3 a packet decoded (latched). The highest one lit says how far the probe
+   got. LED2 without LED3 usually means SWDIO is not connected.
 3. `monitor swd_scan` should print a Cortex-M1. If the ROM table is right this
    works on **stock** BMP, no patch needed.
 4. `attach 1`, then `load` an ELF linked at 0x00000000. Verify with

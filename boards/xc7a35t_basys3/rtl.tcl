@@ -1,8 +1,8 @@
 # shared by build.tcl and project.tcl
 #
 # core selection, `make CORE=pipeline` to override. multicycle is the default
-# because the pipelined core's exception path is not finished (sim/Makefile,
-# excp fails 6 of 15) and m1kern hangs on it right after kernel_start
+# until the pipelined core runs m1kern on hardware: before the push/pop stack
+# bank fix (docs/cores.md) it hung right after kernel_start
 set core multicycle
 if {[info exists ::env(CORE)] && $::env(CORE) ne ""} {
   set core $::env(CORE)
