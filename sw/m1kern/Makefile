@@ -1,21 +1,24 @@
 # builds m1kern's examples for m1core
 #
-# m1kern is a git submodule at ./m1kern, the example sources are in
-# m1kern/examples/<name>/. after cloning run
+# m1kern is a git submodule at ./m1kern. our own applications are in
+# apps/<name>/main.c, the kernel's stock examples in m1kern/examples/<name>/.
+# both build the same way. after cloning run
 #   git submodule update --init
 #
-#   make                                   01_blink for the tang primer 25k
+#   make                                   m1core_demo for the tang primer 25k
+#   make BOARD=basys3
 #   make BOARD=basys3 TARGET=05_preemption
 
 M1KERN_DIR ?= m1kern
 BOARD      ?= gw5a25
-TARGET     ?= 01_blink
+TARGET     ?= m1core_demo
+APPS       := $(wildcard $(CURDIR)/apps/*)
 BUILD      := build/$(BOARD)
 
 # must match the clock the fabric was synthesised with, there is no pll to read
-# back. the 25k divides its 50 MHz oscillator by two, the basys 3 mmcm makes
-# 50 MHz from 100 MHz
-clock_gw5a25 := 25000000
+# back. the 25k runs straight off its 50 MHz oscillator (boards/gw5a25/mcu.yaml),
+# the basys 3 mmcm makes 50 MHz from 100 MHz
+clock_gw5a25 := 50000000
 clock_basys3 := 50000000
 SYSTEM_CLOCK_HZ ?= $(clock_$(BOARD))
 
@@ -29,14 +32,16 @@ all:
 	@test -f $(M1KERN_DIR)/CMakeLists.txt || { echo "m1kern missing, run: git submodule update --init"; exit 1; }
 	cmake -S $(M1KERN_DIR) -B $(BUILD) \
 	    -DM1KERN_TARGET=m1core \
-	    -DSYSTEM_CLOCK_HZ=$(SYSTEM_CLOCK_HZ)
+	    -DSYSTEM_CLOCK_HZ=$(SYSTEM_CLOCK_HZ) \
+	    -DM1KERN_EXTRA_EXAMPLES="$(subst $(eval) ,;,$(APPS))"
 	cmake --build $(BUILD) --target $(TARGET).elf $(ARGS)
 	@echo
 	@echo "built $(BUILD)/bin/$(TARGET).elf at $(SYSTEM_CLOCK_HZ) Hz"
 	@echo "load it from gdb: (gdb) file $(BUILD)/bin/$(TARGET).elf, then reload"
 
 list:
-	@ls $(M1KERN_DIR)/examples
+	@echo "apps/ (this repo):"; ls apps | sed 's/^/  /'
+	@echo "m1kern/examples/:"; ls $(M1KERN_DIR)/examples | sed 's/^/  /'
 
 clean:
 	rm -rf build

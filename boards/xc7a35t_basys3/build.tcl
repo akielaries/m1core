@@ -16,7 +16,7 @@ foreach f $rtl {
 read_verilog [file join $here top.v]
 read_xdc [file join $here basys3.xdc]
 
-synth_design -top top -part $part
+synth_design -top top -part $part -verilog_define $defines
 opt_design
 place_design
 phys_opt_design
@@ -31,7 +31,7 @@ report_drc               -file [file join $out reports drc.rpt]
 write_bitstream -force [file join $out top.bit]
 
 set wns [get_property SLACK [get_timing_paths -max_paths 1 -nworst 1 -setup]]
-puts "RESULT: m1core basys3 wns=$wns"
+puts "RESULT: m1core basys3 ($core) wns=$wns"
 if {$wns ne "" && $wns < 0} {
   puts "RESULT: timing NOT met"
   exit 2

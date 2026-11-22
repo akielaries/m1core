@@ -15,6 +15,7 @@ foreach f $rtl {
 add_files -norecurse [file join $here top.v]
 add_files -fileset constrs_1 -norecurse [file join $here basys3.xdc]
 set_property top top [current_fileset]
+set_property verilog_define $defines [current_fileset]
 update_compile_order -fileset sources_1
 
 puts "RESULT: project at [file join $out proj m1core_basys3.xpr]"

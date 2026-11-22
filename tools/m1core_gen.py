@@ -238,8 +238,11 @@ def gen_header(mcu, types, source, cmsis=False):
 
     clk = mcu["clock"]
     w("/* the fabric clock. software cannot read this back, there is no PLL to")
-    w(f"   interrogate: {clk.get('source', 'see the board top level')} */")
+    w(f"   interrogate: {clk.get('source', 'see the board top level')}.")
+    w("   a build may override it with -DSYSTEM_CLOCK_HZ for another board */")
+    w("#ifndef SYSTEM_CLOCK_HZ")
     w(f"#define SYSTEM_CLOCK_HZ  {clk['hz']}u")
+    w("#endif")
     w("")
 
     std = load_standard()

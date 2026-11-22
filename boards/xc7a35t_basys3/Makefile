@@ -4,9 +4,14 @@
 #   make gui     open the routed design
 #   make open    open a vivado project in the gui (creates it if missing)
 #   make clean
+#
+# CORE=multicycle (default) or CORE=pipeline picks the cpu, see rtl.tcl.
+# switching cores needs a clean, the make rule does not track it
 
 VIVADO ?= /tools/Xilinx/2025.2/Vivado/bin/vivado
 LOADER ?= openFPGALoader
+CORE   ?= multicycle
+export CORE
 OUT    := build
 
 RTL := $(wildcard ../../rtl/*/*.v) top.v basys3.xdc build.tcl rtl.tcl

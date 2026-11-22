@@ -4,7 +4,10 @@ Applications that want threads, preemption and a scheduler use
 [m1kern](https://github.com/akielaries/m1kern), which has an `m1core` target.
 It is a git submodule at `m1kern/`, so the kernel is in `m1kern/kernel/`, the
 m1core port in `m1kern/targets/m1core/` and the example sources in
-`m1kern/examples/<name>/main.c`. This directory only adds the wrapper Makefile.
+`m1kern/examples/<name>/main.c`. This directory adds the wrapper Makefile and our own applications in
+`apps/<name>/main.c`. The headline one is `apps/m1core_demo`: blinkers timed by
+SysTick, two spinners that only advance through preemption, and a monitor
+printing their share over UART0.
 
 After cloning:
 
@@ -16,7 +19,8 @@ git submodule update --init
 
 ```
 make list                                  # available examples
-make                                       # 01_blink for the 25k at 25 MHz
+make                                       # m1core_demo for the 25k
+make BOARD=basys3                          # m1core_demo for the basys 3
 make BOARD=basys3 TARGET=05_preemption     # basys 3 at 50 MHz
 ```
 
@@ -41,8 +45,8 @@ not merely running.
 | `SystemCoreClock` | compile time, must match the synthesised clock |
 
 `SYSTEM_CLOCK_HZ` is a constant because there is no PLL to read back. `BOARD`
-picks it: 25 MHz on the Tang Primer 25K (`top.v` divides the 50 MHz oscillator
-by two) and 50 MHz on the Basys 3 (MMCM from 100 MHz).
+picks it: 50 MHz on the Tang Primer 25K (oscillator direct, see
+`boards/gw5a25/mcu.yaml`) and 50 MHz on the Basys 3 (MMCM from 100 MHz).
 
 ## Why this is separate from `../baremetal`
 
