@@ -17,15 +17,22 @@ set rtl {
   rtl/debug/swd_phy.v
   rtl/mcu/ahb_apb_bridge.v
   rtl/mcu/ahb_arb.v
-  rtl/mcu/ahb_fabric.v
   rtl/mcu/ahb_sram.v
-  rtl/mcu/m1core_apb.v
-  rtl/mcu/m1core_mcu.v
   rtl/periph/ahb_gpio.v
   rtl/periph/apb_rtc.v
   rtl/periph/apb_timer.v
   rtl/periph/apb_uart.v
 }
+
+# this board's soc has an apb expansion slot the shared rtl/mcu files do not,
+# so the three generated ones come from boards/xc7a35t_basys3/mcu.yaml (make
+# gen), plus the board only peripherals hanging off that slot
+lappend rtl \
+  boards/xc7a35t_basys3/gen/ahb_fabric.v \
+  boards/xc7a35t_basys3/gen/m1core_apb.v \
+  boards/xc7a35t_basys3/gen/m1core_mcu.v \
+  boards/xc7a35t_basys3/periph/sevenseg_regs.v \
+  boards/xc7a35t_basys3/periph/sevenseg.v
 
 switch $core {
   multicycle {

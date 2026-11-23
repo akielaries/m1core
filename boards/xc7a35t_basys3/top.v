@@ -12,6 +12,9 @@
 //   led[7]   raw SWCLK level, should idle dark
 //   led[15]  mmcm locked
 //
+// the four digit seven segment display is periph/sevenseg.v on apb expansion
+// slot 0 (0x60000000), registers in periph/sevenseg_regs.yaml
+//
 // swd is on pmod JA (JA1 = SWCLK, JA2 = SWDIO, pin 5 = GND, pin 6 = 3V3) for a black
 // magic probe. uart0 is the onboard ft2232 channel B, so `load` over swd and
 // printf over the same usb cable that programs the fpga
@@ -24,7 +27,9 @@ module top (
   inout         SWDIO,
 
   output [15:0] led,
-  output [3:0]  an,         // 7-seg anodes, held off
+  output [3:0]  an,         // 7-seg anodes, active low, an[0] rightmost
+  output [6:0]  seg,        // 7-seg segments a..g, active low
+  output        dp,         // 7-seg decimal point, active low
 
   output        uart_tx,    // fpga -> host
   input         uart_rx     // host -> fpga
@@ -78,6 +83,9 @@ module top (
   wire [3:0] dbg_led;
   wire [1:0] gpio;
 
+  wire        px0_psel, px_penable, px_pwrite, px0_pready;
+  wire [31:0] px_paddr, px_pwdata, px0_prdata;
+
   m1core_mcu #(
     .ITCM_WORDS (8192),          // 32 kb, matches the linker scripts
     .DTCM_WORDS (4096),          // 16 kb
@@ -91,7 +99,30 @@ module top (
     .led       (dbg_led),
     .gpio      (gpio),
     .uart0_rxd (uart_rx),
-    .uart0_txd (uart_tx)
+    .uart0_txd (uart_tx),
+
+    .apbexp0_psel    (px0_psel),
+    .apbexp0_penable (px_penable),
+    .apbexp0_pwrite  (px_pwrite),
+    .apbexp0_paddr   (px_paddr),
+    .apbexp0_pwdata  (px_pwdata),
+    .apbexp0_prdata  (px0_prdata),
+    .apbexp0_pready  (px0_pready)
+  );
+
+  sevenseg u_sevenseg (
+    .clk     (clk_50),
+    .rst_n   (rst_n),
+    .psel    (px0_psel),
+    .penable (px_penable),
+    .pwrite  (px_pwrite),
+    .paddr   (px_paddr),
+    .pwdata  (px_pwdata),
+    .prdata  (px0_prdata),
+    .pready  (px0_pready),
+    .an      (an),
+    .seg     (seg),
+    .dp      (dp)
   );
 
   // basys 3 leds are active high
@@ -101,6 +132,5 @@ module top (
   assign led[7]     = SWCLK;
   assign led[14:8]  = 7'b0;
   assign led[15]    = mmcm_locked;
-  assign an         = 4'b1111;
 
 endmodule

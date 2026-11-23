@@ -6,6 +6,8 @@
 #   make project   recreate the vivado project from rtl.tcl
 #   make clean     remove the batch build output, keep the gui project
 #   make distclean remove everything under build/
+#   make gen       regenerate gen/ from mcu.yaml after editing it
+#   make regs      regenerate periph/*_regs.{v,h} from their cheby yaml
 #
 # CORE=pipeline (default) or CORE=multicycle picks the cpu, see rtl.tcl. each
 # core builds into its own build/<core>/ with its own project, so switching is
@@ -17,9 +19,9 @@ CORE   ?= pipeline
 export CORE
 OUT    := build/$(CORE)
 
-RTL := $(wildcard ../../rtl/*/*.v) top.v basys3.xdc build.tcl rtl.tcl
+RTL := $(wildcard ../../rtl/*/*.v gen/*.v periph/*.v) top.v basys3.xdc build.tcl rtl.tcl
 
-.PHONY: all prog gui open project clean distclean
+.PHONY: all prog gui open project clean distclean gen regs
 
 all: $(OUT)/top.bit
 
@@ -56,3 +58,22 @@ clean:
 
 distclean:
 	rm -rf build
+
+# this board's soc, generated from its own mcu.yaml. checked in, like rtl/mcu,
+# so the gui project opens without running anything first
+gen:
+	cp ../../rtl/mcu/m1core_mcu.v gen/m1core_mcu.v
+	cd ../.. && python3 tools/m1core_gen.py boards/xc7a35t_basys3/mcu.yaml \
+	  --mcu-rtl boards/xc7a35t_basys3/gen/m1core_mcu.v \
+	  --ahb-rtl boards/xc7a35t_basys3/gen/ahb_fabric.v \
+	  --apb-rtl boards/xc7a35t_basys3/gen/m1core_apb.v
+
+# register files and c headers for the board peripherals. each
+# periph/<name>_regs.yaml gives periph/<name>_regs.v and periph/<name>_regs.h
+CHEBY ?= cheby
+regs:
+	cd periph && for y in *_regs.yaml; do \
+	  n=$${y%.yaml}; echo "cheby $$y -> $$n.v $$n.h"; \
+	  $(CHEBY) -i $$y --hdl verilog --gen-hdl $$n.v && \
+	  $(CHEBY) -i $$y --gen-c $$n.h || exit 1; \
+	done

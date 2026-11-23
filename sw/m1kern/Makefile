@@ -22,6 +22,13 @@ clock_gw5a25 := 50000000
 clock_basys3 := 50000000
 SYSTEM_CLOCK_HZ ?= $(clock_$(BOARD))
 
+# board only peripherals, the ones on an expansion slot of that board's own
+# mcu.yaml. apps test the define, and the cheby headers come from the board
+# directory so firmware and rtl share one register description
+cflags_gw5a25 :=
+cflags_basys3 := -DM1CORE_BOARD_BASYS3 -I$(abspath ../../boards/xc7a35t_basys3/periph)
+BOARD_CFLAGS  := $(cflags_$(BOARD))
+
 ifeq ($(SYSTEM_CLOCK_HZ),)
 $(error unknown BOARD=$(BOARD), use gw5a25 or basys3 or set SYSTEM_CLOCK_HZ)
 endif
@@ -33,6 +40,7 @@ all:
 	cmake -S $(M1KERN_DIR) -B $(BUILD) \
 	    -DM1KERN_TARGET=m1core \
 	    -DSYSTEM_CLOCK_HZ=$(SYSTEM_CLOCK_HZ) \
+	    -DCMAKE_C_FLAGS="$(BOARD_CFLAGS)" \
 	    -DM1KERN_EXTRA_EXAMPLES="$(subst $(eval) ,;,$(APPS))"
 	cmake --build $(BUILD) --target $(TARGET).elf $(ARGS)
 	@echo

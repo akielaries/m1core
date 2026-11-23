@@ -1,0 +1,590 @@
+`default_nettype none
+
+// ---- core selection ----
+//
+// this picks the core for the GOWIN BUILD only. do not edit it by hand: run
+// tools/select_core.py, which also fixes the project file. the two cores are
+// alternatives and exactly one may be listed, because gowin picks a top module
+// by looking for one nothing instantiates, so an unused core there gets chosen
+// as top and every pin in pins.cst then fails to bind.
+//
+// simulation ignores this entirely. it pins the core on the iverilog command
+// line, M1CORE_FORCE_MULTICYCLE or M1CORE_PIPELINE, so both cores stay
+// testable from the same checkout whatever the bitstream is set to build. the
+// guard is what lets the command line define coexist with this one
+`ifndef M1CORE_PIPELINE
+`define M1CORE_PIPELINE
+`endif
+
+// mcu top level: cpu, debug access port, bus fabric, memories and peripherals
+//
+// what this is for: attach a black magic probe, have it discover a cortex-m1
+// through the rom table, and let gdb load write firmware into the itcm. once
+// that works end to end on hardware, the core gets built behind it
+
+module m1core_mcu #(
+  parameter ITCM_WORDS  = 4096,   // 16 kb
+  parameter DTCM_WORDS  = 2048,   // 8 kb
+  parameter GPIO_WIDTH  = 2,
+  parameter              ITCM_INIT   = ""
+) (
+  input  wire        clk,
+  input  wire        rst_n,
+
+  // swd from the probe
+  input  wire        swclk,
+  inout  wire        swdio,
+
+  // status indicators, driven by hardware not firmware
+  output wire [3:0]  led,
+
+  // firmware controlled pins, also reachable from gdb over swd
+  output wire [GPIO_WIDTH-1:0]gpio
+  // leading commas so this block can be empty without leaving a dangling one
+  // BEGIN GENERATED periph-ports
+  , input  wire        uart0_rxd
+  , output wire        uart0_txd
+  // apbexp0: apb expansion window at 0x60000000, 1 MB
+  , output wire        apbexp0_psel
+  , output wire        apbexp0_penable
+  , output wire        apbexp0_pwrite
+  , output wire [31:0] apbexp0_paddr
+  , output wire [31:0] apbexp0_pwdata
+  , input  wire [31:0] apbexp0_prdata
+  , input  wire        apbexp0_pready
+  // END GENERATED periph-ports
+);
+
+  // power on reset, so the design comes up correctly whether rst_n is wired to
+  // a button or just tied high
+  reg [7:0] por_cnt = 8'd0;
+  reg       por_n = 1'b0;
+
+  always @(posedge clk) begin
+    if (por_cnt != 8'hff) begin
+      por_cnt <= por_cnt + 8'd1;
+      por_n   <= 1'b0;
+    end else begin
+      por_n <= 1'b1;
+    end
+  end
+
+  wire rst_n_i = rst_n && por_n;
+
+  // swd phy
+  wire        swdio_o, swdio_oe;
+  wire        req_valid, req_apndp, req_rnw;
+  wire [1:0]  req_addr;
+  wire [2:0]  rsp_ack;
+  wire [31:0] rsp_rdata;
+  wire        wr_valid, wr_parity_ok;
+  wire [31:0] wr_data;
+  wire        line_reset;
+
+  assign swdio = swdio_oe ? swdio_o : 1'bz;
+
+  swd_phy u_phy (
+    .clk          (clk),
+    .rst_n        (rst_n_i),
+    .swclk_i      (swclk),
+    .swdio_i      (swdio),
+    .swdio_o      (swdio_o),
+    .swdio_oe     (swdio_oe),
+    .req_valid    (req_valid),
+    .req_apndp    (req_apndp),
+    .req_rnw      (req_rnw),
+    .req_addr     (req_addr),
+    .rsp_ack      (rsp_ack),
+    .rsp_rdata    (rsp_rdata),
+    .wr_valid     (wr_valid),
+    .wr_parity_ok (wr_parity_ok),
+    .wr_data      (wr_data),
+    .line_reset   (line_reset)
+  );
+
+  // debug port
+  wire        ap_req, ap_rnw;
+  wire [7:0]  ap_sel;
+  wire [5:0]  ap_addr;
+  wire [31:0] ap_wdata, ap_rdata;
+  wire        ap_ack, ap_fault;
+  wire        dbg_pwrup, sys_pwrup, dbg_reset_req;
+
+  sw_dp u_dp (
+    .clk           (clk),
+    .rst_n         (rst_n_i),
+    .req_valid     (req_valid),
+    .req_apndp     (req_apndp),
+    .req_rnw       (req_rnw),
+    .req_addr      (req_addr),
+    .rsp_ack       (rsp_ack),
+    .rsp_rdata     (rsp_rdata),
+    .wr_valid      (wr_valid),
+    .wr_parity_ok  (wr_parity_ok),
+    .wr_data       (wr_data),
+    .line_reset    (line_reset),
+    .ap_req        (ap_req),
+    .ap_rnw        (ap_rnw),
+    .ap_sel        (ap_sel),
+    .ap_addr       (ap_addr),
+    .ap_wdata      (ap_wdata),
+    .ap_ack        (ap_ack),
+    .ap_rdata      (ap_rdata),
+    .ap_fault      (ap_fault),
+    .dbg_pwrup     (dbg_pwrup),
+    .sys_pwrup     (sys_pwrup),
+    .dbg_reset_req (dbg_reset_req)
+  );
+
+  // shared bus, two masters
+  wire [31:0] haddr, hwdata;
+  wire        hwrite;
+  wire [2:0]  hsize, hburst;
+  wire [1:0]  htrans;
+  wire [3:0]  hprot;
+  wire [31:0] hrdata;
+  wire        hready, hresp;
+
+  // dedicated tcm ports, driven by the pipelined core and tied off otherwise
+  wire        core_itcm_en, core_dtcm_en, core_dtcm_write;
+  wire [31:0] core_itcm_addr, core_dtcm_addr, core_dtcm_wdata;
+  wire [3:0]  core_dtcm_be;
+  wire [31:0] core_itcm_rdata, core_dtcm_rdata;
+`ifdef M1CORE_FORCE_MULTICYCLE
+  assign core_itcm_en = 1'b0;   assign core_itcm_addr = 32'd0;
+  assign core_dtcm_en = 1'b0;   assign core_dtcm_addr = 32'd0;
+  assign core_dtcm_write = 1'b0; assign core_dtcm_be = 4'd0;
+  assign core_dtcm_wdata = 32'd0;
+`elsif M1CORE_PIPELINE
+`else
+  assign core_itcm_en = 1'b0;   assign core_itcm_addr = 32'd0;
+  assign core_dtcm_en = 1'b0;   assign core_dtcm_addr = 32'd0;
+  assign core_dtcm_write = 1'b0; assign core_dtcm_be = 4'd0;
+  assign core_dtcm_wdata = 32'd0;
+`endif
+
+  wire        dap_req, dap_write, dap_gnt;
+  wire [31:0] dap_addr, dap_wdata;
+  wire [2:0]  dap_size;
+
+  wire        cpu_req, cpu_write, cpu_gnt;
+  wire [31:0] cpu_addr, cpu_wdata;
+  wire [2:0]  cpu_size;
+
+  mem_ap u_ap (
+    .clk       (clk),
+    .rst_n     (rst_n_i),
+    .ap_req    (ap_req),
+    .ap_rnw    (ap_rnw),
+    .ap_sel    (ap_sel),
+    .ap_addr   (ap_addr),
+    .ap_wdata  (ap_wdata),
+    .ap_ack    (ap_ack),
+    .ap_rdata  (ap_rdata),
+    .ap_fault  (ap_fault),
+    .bus_req   (dap_req),
+    .bus_addr  (dap_addr),
+    .bus_write (dap_write),
+    .bus_size  (dap_size),
+    .bus_wdata (dap_wdata),
+    .bus_gnt   (dap_gnt),
+    .bus_ready (hready),
+    .hrdata    (hrdata),
+    .hresp     (hresp)
+  );
+
+  wire        dbg_halt_req, dbg_step_req, dbg_en;
+  wire        sys_reset_req, vc_corereset;
+  wire        pend_valid;
+  wire [5:0]  pend_num;
+  wire [2:0]  pend_prio;
+  wire        exc_taken;
+  wire [5:0]  exc_taken_num;
+  wire        core_halted, core_bkpt, core_halt_event, core_lockup;
+  wire        dreg_req, dreg_wnr, dreg_ack;
+  wire [4:0]  dreg_sel;
+  wire [31:0] dreg_wdata, dreg_rdata;
+  wire [31:0] demcr;
+
+  // ---- which core ----
+  //
+  // the pipelined core is selected with `M1CORE_PIPELINE, the multi-cycle one
+  // with `M1CORE_FORCE_MULTICYCLE. same ports and the same programmer's model,
+  // the multi-cycle core is the reference the pipeline is tested against. see
+  // docs/cores.md
+`ifdef M1CORE_FORCE_MULTICYCLE
+  // simulation pins the core it wants on the command line, so the selection
+  // made for the gowin build below cannot change which core a test exercises
+  m1core_cpu u_core (
+`elsif M1CORE_PIPELINE
+  m1core_cpu_p u_core (
+`else
+  m1core_cpu u_core (
+`endif
+    .clk          (clk),
+    .rst_n        (rst_n_i),
+    .bus_req      (cpu_req),
+    .bus_addr     (cpu_addr),
+    .bus_write    (cpu_write),
+    .bus_size     (cpu_size),
+    .bus_wdata    (cpu_wdata),
+    .bus_gnt      (cpu_gnt),
+    .bus_ready    (hready),
+    .bus_rdata    (hrdata),
+    .dbg_en        (dbg_en),
+    .sys_reset_req (sys_reset_req),
+    .vc_corereset  (vc_corereset),
+    .dbg_halt_req (dbg_halt_req),
+    .dbg_step_req (dbg_step_req),
+    .dbg_halted   (core_halted),
+    .dbg_halt_event (core_halt_event),
+    .dbg_bkpt_hit (core_bkpt),
+    .dbg_lockup   (core_lockup),
+    .pend_valid    (pend_valid),
+    .pend_num      (pend_num),
+    .pend_prio     (pend_prio),
+    .exc_taken     (exc_taken),
+    .exc_taken_num (exc_taken_num),
+    .dreg_req     (dreg_req),
+    .dreg_wnr     (dreg_wnr),
+    .dreg_sel     (dreg_sel),
+    .dreg_wdata   (dreg_wdata),
+    .dreg_ack     (dreg_ack),
+    .dreg_rdata   (dreg_rdata)
+`ifdef M1CORE_FORCE_MULTICYCLE
+`elsif M1CORE_PIPELINE
+    , .itcm_en    (core_itcm_en)
+    , .itcm_addr  (core_itcm_addr)
+    , .itcm_rdata (core_itcm_rdata)
+    , .dtcm_en    (core_dtcm_en)
+    , .dtcm_addr  (core_dtcm_addr)
+    , .dtcm_write (core_dtcm_write)
+    , .dtcm_be    (core_dtcm_be)
+    , .dtcm_wdata (core_dtcm_wdata)
+    , .dtcm_rdata (core_dtcm_rdata)
+    , .unsupported ()
+`endif
+  );
+
+  ahb_arb u_arb (
+    .clk      (clk),
+    .rst_n    (rst_n_i),
+    .m0_req   (dap_req),
+    .m0_addr  (dap_addr),
+    .m0_write (dap_write),
+    .m0_size  (dap_size),
+    .m0_wdata (dap_wdata),
+    .m0_gnt   (dap_gnt),
+    .m1_req   (cpu_req),
+    .m1_addr  (cpu_addr),
+    .m1_write (cpu_write),
+    .m1_size  (cpu_size),
+    .m1_wdata (cpu_wdata),
+    .m1_gnt   (cpu_gnt),
+    .haddr    (haddr),
+    .hwrite   (hwrite),
+    .hsize    (hsize),
+    .htrans   (htrans),
+    .hburst   (hburst),
+    .hprot    (hprot),
+    .hwdata   (hwdata),
+    .hready   (hready)
+  );
+
+  // bus fabric and slaves
+  //
+  // the fabric's port list is one group per slave, so it changes whenever a
+  // peripheral or an expansion window is added. generated for that reason
+  // BEGIN GENERATED fabric
+  wire        hsel_itcm, hsel_dtcm, hsel_gpio0, hsel_apb, hsel_apbexp, hsel_ppb;
+  wire [31:0] hrdata_itcm, hrdata_dtcm, hrdata_gpio0, hrdata_apb, hrdata_apbexp, hrdata_ppb;
+  wire        hreadyout_apb;
+  wire        hreadyout_ppb;
+  wire        hreadyout_apbexp;
+
+  ahb_fabric u_fabric (
+    .clk         (clk),
+    .rst_n       (rst_n_i),
+    .haddr       (haddr),
+    .htrans      (htrans),
+    .hrdata      (hrdata),
+    .hready      (hready),
+    .hresp       (hresp),
+    .hsel_itcm      (hsel_itcm),
+    .hsel_dtcm      (hsel_dtcm),
+    .hsel_gpio0     (hsel_gpio0),
+    .hsel_apb       (hsel_apb),
+    .hsel_apbexp    (hsel_apbexp),
+    .hsel_ppb       (hsel_ppb),
+    .hrdata_itcm    (hrdata_itcm),
+    .hrdata_dtcm    (hrdata_dtcm),
+    .hrdata_gpio0   (hrdata_gpio0),
+    .hrdata_apb     (hrdata_apb),
+    .hrdata_apbexp  (hrdata_apbexp),
+    .hrdata_ppb     (hrdata_ppb),
+    // the tcms and the gpio answer in the address phase; the apb bridge,
+    // the ppb and any expansion window drive a real hreadyout
+    .hreadyout_itcm (1'b1),
+    .hreadyout_dtcm (1'b1),
+    .hreadyout_gpio0 (1'b1),
+    .hreadyout_apb  (hreadyout_apb),
+    .hreadyout_apbexp (hreadyout_apbexp),
+    .hreadyout_ppb  (hreadyout_ppb)
+  );
+
+  // apb expansion window, one bridge shared by every slot
+  wire        apbexp_psel_w;
+  wire        apbexp_penable_w;
+  wire        apbexp_pwrite_w;
+  wire [31:0] apbexp_paddr_w;
+  wire [31:0] apbexp_pwdata_w;
+  reg  [31:0] apbexp_prdata_w;
+  reg         apbexp_pready_w;
+
+  ahb_apb_bridge u_apbexp_bridge (
+    .clk       (clk),
+    .rst_n     (rst_n_i),
+    .hsel      (hsel_apbexp),
+    .haddr     (haddr),
+    .hwrite    (hwrite),
+    .htrans    (htrans),
+    .hready    (hready),
+    .hwdata    (hwdata),
+    .hrdata    (hrdata_apbexp),
+    .hreadyout (hreadyout_apbexp),
+    .psel      (apbexp_psel_w),
+    .penable   (apbexp_penable_w),
+    .pwrite    (apbexp_pwrite_w),
+    .paddr     (apbexp_paddr_w),
+    .pwdata    (apbexp_pwdata_w),
+    .prdata    (apbexp_prdata_w),
+    .pready    (apbexp_pready_w)
+  );
+
+  wire [3:0] apbexp_slot = apbexp_paddr_w[23:20];
+
+  assign apbexp0_psel    = apbexp_psel_w && (apbexp_slot == 4'd0);
+  assign apbexp0_penable = apbexp_penable_w;
+  assign apbexp0_pwrite  = apbexp_pwrite_w;
+  assign apbexp0_paddr   = apbexp_paddr_w;
+  assign apbexp0_pwdata  = apbexp_pwdata_w;
+
+  always @(*) begin
+    case (apbexp_slot)
+      4'd0: begin
+        apbexp_prdata_w = apbexp0_prdata;
+        apbexp_pready_w = apbexp0_pready;
+      end
+      // a slot inside the window with nothing attached still has to
+      // complete, or the access waits on a pready that never arrives
+      default: begin
+        apbexp_prdata_w = 32'd0;
+        apbexp_pready_w = 1'b1;
+      end
+    endcase
+  end
+  // END GENERATED fabric
+
+  ahb_gpio #(
+    .WIDTH (GPIO_WIDTH)
+  ) u_gpio (
+    .clk    (clk),
+    .rst_n  (rst_n_i),
+    .hsel   (hsel_gpio0),
+    .haddr  (haddr),
+    .hwrite (hwrite),
+    .htrans (htrans),
+    .hready (hready),
+    .hwdata (hwdata),
+    .hrdata (hrdata_gpio0),
+    .gpio_o (gpio)
+  );
+
+  ahb_sram #(
+    .WORDS     (ITCM_WORDS),
+    .INIT_FILE (ITCM_INIT)
+  ) u_itcm (
+    .clk    (clk),
+    .rst_n  (rst_n_i),
+    .hsel   (hsel_itcm),
+    .haddr  (haddr),
+    .hwrite (hwrite),
+    .hsize  (hsize),
+    .htrans (htrans),
+    .hready (hready),
+    .hwdata (hwdata),
+    .hrdata (hrdata_itcm),
+    // core side: the pipelined core fetches straight out of the itcm, which is
+    // what the trm's dedicated ITCM interface is. the multi-cycle core does not
+    // use it and drives these inactive
+    .p_en    (core_itcm_en),
+    .p_addr  (core_itcm_addr),
+    .p_rdata (core_itcm_rdata)
+  );
+
+  ahb_sram #(
+    .WORDS (DTCM_WORDS)
+  ) u_dtcm (
+    .clk    (clk),
+    .rst_n  (rst_n_i),
+    .hsel   (hsel_dtcm),
+    .haddr  (haddr),
+    .hwrite (hwrite),
+    .hsize  (hsize),
+    .htrans (htrans),
+    .hready (hready),
+    .hwdata (hwdata),
+    .hrdata (hrdata_dtcm),
+    // the dtcm core port is not used: a core write port here would be the
+    // second writer into this array and block ram inference fails. data
+    // accesses go out on the ahb master, which is free now that fetch does not
+    // use it
+    .p_en    (1'b0),
+    .p_addr  (32'd0),
+    .p_rdata (core_dtcm_rdata)
+  );
+
+  // ---- apb side: one ahb slot, as many peripherals as we like ----
+  wire        psel, penable, pwrite;
+  wire [31:0] paddr, pwdata;
+  wire        pready;
+  wire [31:0] prdata;
+
+  ahb_apb_bridge u_apb_bridge (
+    .clk       (clk),
+    .rst_n     (rst_n_i),
+    .hsel      (hsel_apb),
+    .haddr     (haddr),
+    .hwrite    (hwrite),
+    .htrans    (htrans),
+    .hready    (hready),
+    .hwdata    (hwdata),
+    .hrdata    (hrdata_apb),
+    .hreadyout (hreadyout_apb),
+    .psel      (psel),
+    .penable   (penable),
+    .pwrite    (pwrite),
+    .paddr     (paddr),
+    .pwdata    (pwdata),
+    .prdata    (prdata),
+    .pready    (pready)
+  );
+
+  // the apb subsystem is generated from the soc description, so adding a
+  // peripheral is a few lines of yaml rather than an edit here. see
+  // rtl/mcu/m1core_apb.v and docs/mcu-config.md
+  wire [31:0] apb_irq;
+
+  m1core_apb u_apb (
+    .clk       (clk),
+    .rst_n     (rst_n_i),
+    .psel      (psel),
+    .penable   (penable),
+    .pwrite    (pwrite),
+    .paddr     (paddr),
+    .pwdata    (pwdata),
+    .prdata    (prdata),
+    .pready    (pready),
+    .irq       (apb_irq)
+    // BEGIN GENERATED apb-pins
+    , .uart0_rxd  (uart0_rxd)
+    , .uart0_txd  (uart0_txd)
+    // END GENERATED apb-pins
+  );
+
+
+  ppb_regs u_ppb (
+    .hreadyout     (hreadyout_ppb),
+    .clk          (clk),
+    .rst_n        (rst_n_i),
+    .hsel         (hsel_ppb),
+    .haddr        (haddr),
+    .hwrite       (hwrite),
+    .htrans       (htrans),
+    .hready       (hready),
+    .hwdata       (hwdata),
+    .hrdata       (hrdata_ppb),
+    .dbg_halt_req (dbg_halt_req),
+    .dbg_step_req (dbg_step_req),
+    .dbg_en       (dbg_en),
+    .demcr_out    (demcr),
+    .sys_reset_req (sys_reset_req),
+    .vc_corereset  (vc_corereset),
+    .irq_in        (apb_irq),
+    .pend_valid    (pend_valid),
+    .pend_num      (pend_num),
+    .pend_prio     (pend_prio),
+    .exc_taken     (exc_taken),
+    .exc_taken_num (exc_taken_num),
+    .core_halted  (core_halted),
+    .core_lockup  (core_lockup),
+    .core_halt_event (core_halt_event),
+    .core_bkpt    (core_bkpt),
+    .dreg_req     (dreg_req),
+    .dreg_wnr     (dreg_wnr),
+    .dreg_sel     (dreg_sel),
+    .dreg_wdata   (dreg_wdata),
+    .dreg_ack     (dreg_ack),
+    .dreg_rdata   (dreg_rdata)
+  );
+
+  // ---------------------------------------------------------------------------
+  // bring-up staircase
+  //
+  //   led0  heartbeat, the fabric is clocked
+  //   led1  swclk edges are arriving at the pin
+  //   led2  a line reset was recognised          (sticky)
+  //   led3  a well formed packet was decoded     (sticky)
+  //
+  // each stage can only happen if the previous one did, so a failed scan points
+  // straight at a stage rather than leaving every led dark. the two upper ones
+  // latch instead of flickering, because "did this ever happen" is the question
+  // being asked and a flicker is easy to miss.
+  //
+  // led1 dark        -> nothing reaching the pin, wiring or pin assignment
+  // led1 only        -> clock seen but no line reset recognised, almost always
+  //                     swclk too fast for the oversampler, slow the probe
+  // led1+led2 only   -> framing or parity, the packet decoder is rejecting it
+  // all four         -> the dp is talking, look at the rom table walk instead
+  //
+  // once scanning works these can go back to reporting dbg_pwrup and dbg_en,
+  // which are only meaningful after a successful attach
+  // ---------------------------------------------------------------------------
+  reg [23:0] hb;
+  reg [19:0] act;
+  reg [2:0]  swclk_edge_sync;
+  reg        saw_line_reset;
+  reg        saw_packet;
+
+  always @(posedge clk or negedge rst_n_i) begin
+    if (!rst_n_i) begin
+      hb              <= 24'd0;
+      act             <= 20'd0;
+      swclk_edge_sync <= 3'b000;
+      saw_line_reset  <= 1'b0;
+      saw_packet      <= 1'b0;
+    end else begin
+      hb <= hb + 24'd1;
+
+      // detect swclk toggling at all, independently of the phy's own framing
+      swclk_edge_sync <= {swclk_edge_sync[1:0], swclk};
+      if (swclk_edge_sync[2] ^ swclk_edge_sync[1]) begin
+        act <= 20'hfffff;
+      end else if (act != 20'd0) begin
+        act <= act - 20'd1;
+      end
+
+      if (line_reset) begin
+        saw_line_reset <= 1'b1;
+      end
+      if (req_valid) begin
+        saw_packet <= 1'b1;
+      end
+    end
+  end
+
+  assign led = {saw_packet, saw_line_reset, act != 20'd0, hb[23]};
+
+endmodule
+
+`default_nettype wire

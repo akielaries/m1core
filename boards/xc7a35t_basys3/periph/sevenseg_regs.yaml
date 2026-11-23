@@ -1,0 +1,65 @@
+# basys 3 four digit seven segment display, apb expansion slot 0 (0x60000000)
+#
+# single source for the register file and the c header, regenerate with
+# `make regs` in boards/xc7a35t_basys3 after editing:
+#   sevenseg_regs.v  cheby apb slave, instantiated by sevenseg.v
+#   sevenseg_regs.h  c offsets and masks for firmware
+
+memory-map:
+  name: sevenseg_regs
+  bus: apb-32
+  size: 0x10
+  description: basys 3 seven segment display
+  children:
+
+    - reg:
+        name: ctrl
+        address: 0x00
+        width: 32
+        access: rw
+        description: display control
+        children:
+          - field:
+              name: en
+              range: 0
+              description: 1 = scan the digits, 0 = all blank
+          - field:
+              name: raw
+              range: 1
+              description: 0 = hex decode value, 1 = show the raw segment bytes
+
+    - reg:
+        name: value
+        address: 0x04
+        width: 32
+        access: rw
+        description: hex mode, one nibble per digit, digit 0 is the rightmost
+        children:
+          - field:
+              name: digits
+              range: 15-0
+              description: four hex digits
+
+    - reg:
+        name: raw
+        address: 0x08
+        width: 32
+        access: rw
+        description: raw mode, one byte per digit, bit 0 = a .. bit 6 = g, active high
+        children:
+          - field:
+              name: segs
+              range: 31-0
+              description: digit n in bits 8n+6..8n
+
+    - reg:
+        name: dp
+        address: 0x0c
+        width: 32
+        access: rw
+        description: decimal points, both modes, bit n lights the dp of digit n
+        children:
+          - field:
+              name: mask
+              range: 3-0
+              description: one bit per digit

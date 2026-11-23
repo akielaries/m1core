@@ -39,10 +39,10 @@ MVP_RTL := $(DAP_RTL) \
 IFLAGS := -g2012 -Wall -I$(ROOT)/tb -DM1CORE_FORCE_MULTICYCLE
 PFLAGS := -g2012 -Wall -I$(ROOT)/tb -DM1CORE_PIPELINE
 
-.PHONY: all checkproj checkgen checkyaml dap core isarand exc FORCE blink uart hello mvp exp periph fw m1kern m1kernp wave clean \
+.PHONY: all checkproj checkgen checkyaml dap core isarand exc FORCE blink uart hello mvp exp periph sevenseg checkbasys3 fw m1kern m1kernp wave clean \
         fetch pipe aluequiv corep isarandp blinkp hellop mvpp excp pipeline
 
-all: checkproj checkgen checkyaml dap core isarand exc FORCE blink uart hello mvp exp periph pipeline
+all: checkproj checkgen checkyaml dap core isarand exc FORCE blink uart hello mvp exp periph sevenseg pipeline
 
 # everything that exercises the pipelined core. kept as its own group so it is
 # obvious which results belong to which core
@@ -83,6 +83,29 @@ checkgen:
 	    --ahb-rtl $(ROOT)/rtl/mcu/ahb_fabric.v \
 	    --mcu-rtl $(ROOT)/rtl/mcu/m1core_mcu.v \
 	    $(CMSIS_ARG) --check
+	@python3 $(ROOT)/tools/mcu_yaml.py $(ROOT)/boards/xc7a35t_basys3/mcu.yaml
+	@$(MAKE) --no-print-directory checkbasys3
+
+# the basys 3 has its own soc in boards/xc7a35t_basys3/gen. m1core_mcu.v there
+# is spliced from the shared one, so regenerate the three files from scratch and
+# require them identical: catches a stale mcu.yaml and a hand edit to the shared
+# m1core_mcu.v that never reached the board copy
+B3     := boards/xc7a35t_basys3
+B3_GEN := $(BUILD)/gen_basys3
+
+checkbasys3: | $(BUILD)
+	@mkdir -p $(B3_GEN)
+	@cp $(ROOT)/rtl/mcu/m1core_mcu.v $(B3_GEN)/m1core_mcu.v
+	@cd $(ROOT) && python3 tools/m1core_gen.py $(B3)/mcu.yaml \
+	    --mcu-rtl sim/$(B3_GEN)/m1core_mcu.v --ahb-rtl sim/$(B3_GEN)/ahb_fabric.v \
+	    --apb-rtl sim/$(B3_GEN)/m1core_apb.v > /dev/null
+	@for f in m1core_mcu.v ahb_fabric.v m1core_apb.v; do \
+	  if cmp -s $(B3_GEN)/$$f $(ROOT)/$(B3)/gen/$$f; then \
+	    echo "ok   $(B3)/gen/$$f matches"; \
+	  else \
+	    echo "FAIL $(B3)/gen/$$f is stale, run make gen in $(B3)"; exit 1; \
+	  fi; \
+	done
 
 dap: $(BUILD)/tb_dap
 	$(VVP) $<
@@ -156,6 +179,17 @@ hello: $(BUILD)/tb_hello fw
 
 periph: $(BUILD)/tb_periph
 	$(VVP) $<
+
+# basys 3 board block, the cheby register file plus the display scan, behind
+# the real ahb to apb bridge
+SEVENSEG_DIR := $(ROOT)/boards/xc7a35t_basys3/periph
+SEVENSEG_RTL := $(ROOT)/rtl/mcu/ahb_apb_bridge.v $(SEVENSEG_DIR)/sevenseg_regs.v $(SEVENSEG_DIR)/sevenseg.v
+
+sevenseg: $(BUILD)/tb_sevenseg
+	$(VVP) $<
+
+$(BUILD)/tb_sevenseg: $(SEVENSEG_RTL) $(ROOT)/tb/tb_sevenseg.sv | $(BUILD)
+	$(IVERILOG) $(IFLAGS) -o $@ $(SEVENSEG_RTL) $(ROOT)/tb/tb_sevenseg.sv
 
 exp: $(BUILD)/tb_exp
 	$(VVP) $<

@@ -10,6 +10,8 @@
  *   nvic       the monitor outranks the spinners and always gets to print
  *   gpio       gpio0 bit 0 at 1 Hz, bit 1 at 2 Hz (LD4 and LD5 on the basys 3)
  *   uart0      the report, 115200 8n1 on the board's usb serial port
+ *   sevenseg   basys 3 only, uptime as MM.SS on the four digit display, a
+ *              board peripheral on apb expansion slot 0
  *
  * expected on the uart every second, counts are loop passes in the interval:
  *   [3015 ms] +1004 ms spin0=695125 spin1=705376 share 49%/50%
@@ -19,6 +21,13 @@
  */
 #include "m1kern.h"
 #include "board.h"
+
+#ifdef M1CORE_BOARD_BASYS3
+#include "sevenseg_regs.h"
+
+/* apb expansion slot 0, boards/xc7a35t_basys3/mcu.yaml */
+#define SEVENSEG ((volatile struct sevenseg_regs *)0x60000000u)
+#endif
 
 static volatile uint32_t spin0_count = 0;
 static volatile uint32_t spin1_count = 0;
@@ -52,6 +61,26 @@ THREAD_FUNCTION(spin1_fn, arg) {
     spin1_count++;
   }
 }
+
+#ifdef M1CORE_BOARD_BASYS3
+/* hex mode shows each nibble as a digit, so packing decimal digits one per
+   nibble (bcd) makes it display in decimal */
+static uint32_t bcd2(uint32_t n) {
+  return ((n / 10) << 4) | (n % 10);
+}
+
+THREAD_STACK(uptime, 256);
+THREAD_FUNCTION(uptime_fn, arg) {
+  SEVENSEG->dp   = 1u << 2;
+  SEVENSEG->ctrl = SEVENSEG_REGS_CTRL_EN;
+  while (1) {
+    uint32_t s = system_time_ms / 1000;
+    uint32_t m = (s / 60) % 100;
+    SEVENSEG->value = (bcd2(m) << 8) | bcd2(s % 60);
+    thread_sleep_ms(100);
+  }
+}
+#endif
 
 THREAD_STACK(monitor, 512);
 THREAD_FUNCTION(monitor_fn, arg) {
@@ -92,6 +121,9 @@ int main(void) {
   mkthd_static(spin0, spin0_fn, sizeof(spin0), PRIO_LOW, NULL);
   mkthd_static(spin1, spin1_fn, sizeof(spin1), PRIO_LOW, NULL);
   mkthd_static(monitor, monitor_fn, sizeof(monitor), PRIO_HIGH, NULL);
+#ifdef M1CORE_BOARD_BASYS3
+  mkthd_static(uptime, uptime_fn, sizeof(uptime), PRIO_NORMAL, NULL);
+#endif
 
   console_printf("\r\nm1core_demo: m1kern on m1core, %u Hz\r\n", SYSTEM_CLOCK_HZ);
   kernel_start();
